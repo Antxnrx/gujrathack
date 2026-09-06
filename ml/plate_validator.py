@@ -137,6 +137,20 @@ def correct_plate(raw: str) -> Optional[str]:
     return best[0] if best else None
 
 
+def matches_format(text: str) -> bool:
+    """Strict format predicate — is this string already a legal plate?
+
+    No correction, no fuzz. ``validate_plate`` both validates and repairs, which
+    is right for a single OCR read but wrong when a caller is scoring candidate
+    strings of its own and needs to know which ones are legal as-is.
+    Used by ml/analytics/anpr.py's multi-frame consensus snapping.
+    """
+    if not text:
+        return False
+    m = _PLATE_PATTERN.match(text)
+    return bool(m) and m.group(1) in INDIAN_STATE_CODES
+
+
 def validate_plate(raw: str) -> Optional[str]:
     """
     Validate and optionally correct an Indian license plate.

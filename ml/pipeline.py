@@ -33,6 +33,8 @@ class Detection:
     ts: datetime
     pts_ms: float           # position-in-segment in milliseconds (from CAP_PROP_POS_MSEC)
     dominant_color: Optional[str]  # HSV colour bucket for NL search precision
+    frame_w: Optional[int] = None  # source frame width — lets normalised zone
+    frame_h: Optional[int] = None  # polygons be tested against pixel bboxes
 
 class DetectionPipeline:
     # ── CLIP zero-shot label sets ─────────────────────────────────────────────
@@ -209,6 +211,8 @@ class DetectionPipeline:
                 ts=ts,
                 pts_ms=pts_ms,
                 dominant_color=dominant_color,  # CLIP zero-shot, not HSV buckets
+                frame_w=w,
+                frame_h=h,
             ))
 
         return detections

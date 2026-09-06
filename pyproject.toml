@@ -18,6 +18,11 @@ dependencies = [
   "Pillow>=10.4",
   "fast-plate-ocr>=0.3",       # Lightweight ANPR OCR (primary)
   "onnxruntime>=1.16",         # Required by fast-plate-ocr
+  # Undeclared but required: the FarAwayFer plate-detector checkpoint is pickled
+  # with an OmegaConf config object, so torch.load raises ModuleNotFoundError
+  # without it. DetectionPipeline.__init__ loads the plate detector eagerly, so
+  # a missing omegaconf takes down the whole pipeline, not just ANPR.
+  "omegaconf==2.3.1",
   # Database
   "psycopg2-binary>=2.9",      # PostgreSQL driver
   "pgvector>=0.3",             # pgvector type adapter for psycopg2
@@ -30,6 +35,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The operator API. Kept out of the core dependency set on purpose: ml/worker.py
+# and scripts/* run on edge boxes that never serve HTTP, and pulling a web stack
+# onto them would be dead weight. Pinned exactly — this is the layer an operator
+# authenticates against, so a surprise minor upgrade of the JWT or ASGI stack is
+# not something to discover in a demo.
+backend = [
+  "fastapi==0.141.1",
+  "uvicorn[standard]==0.52.4",
+  "asyncpg==0.31.0",           # async pool for the API; ml/* keeps psycopg2
+  "PyJWT[crypto]==2.13.0",     # RS256 verification against Model 1's JWKS
+]
 dev = [
   "ruff>=0.7",
   "pytest>=8.3",
@@ -43,7 +59,7 @@ setu-index  = "scripts.batch_index:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ml*"]
+include = ["ml*", "backend*"]
 
 [tool.ruff]
 line-length = 100

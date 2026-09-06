@@ -21,17 +21,26 @@ def get_camera_id(conn, external_id: str) -> Optional[str]:
         row = cur.fetchone()
         return str(row['id']) if row else None
 
-def write_detection(conn, det: Detection) -> None:
+def write_detection(conn, det: Detection, session_key: str = "live") -> None:
+    """Persist one detection.
+
+    ``session_key`` namespaces ``track_id``: ByteTrack numbers tracks from 1
+    within a run, so a batch-index pass and the live worker will both emit
+    track 7 for unrelated vehicles. Callers that jump through time (batch_index)
+    should pass a distinct key per run so downstream track aggregation does not
+    weld them together.
+    """
     with conn.cursor() as cur:
         cur.execute("""
             INSERT INTO detections 
-            (id, camera_id, track_id, class, bbox, confidence, plate_text, plate_confidence, embedding, thumbnail_key, ts, pts_ms, dominant_color)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (id, camera_id, track_id, class, bbox, confidence, plate_text, plate_confidence, embedding, thumbnail_key, ts, pts_ms, dominant_color, frame_w, frame_h, session_key)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
         """, (
             det.id, det.camera_id, det.track_id, det.class_name, json.dumps(det.bbox), 
             det.confidence, det.plate_text, det.plate_confidence, 
             det.embedding, det.thumbnail_key, det.ts, det.pts_ms, det.dominant_color,
+            getattr(det, "frame_w", None), getattr(det, "frame_h", None), session_key,
         ))
 
 def write_alert(
