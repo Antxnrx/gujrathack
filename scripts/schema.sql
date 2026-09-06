@@ -74,7 +74,10 @@ CREATE TABLE IF NOT EXISTS alerts (
     watchlist_entry_id  UUID  REFERENCES watchlist_entries(id),   -- NULL for anomaly alerts
     detection_id        UUID  NOT NULL REFERENCES detections(id),
     alert_type          TEXT  NOT NULL DEFAULT 'watchlist_match'
-                              CHECK (alert_type IN ('watchlist_match', 'stopped_vehicle', 'wrong_way')),
+                              CHECK (alert_type IN (
+                                  'watchlist_match', 'stopped_vehicle', 'wrong_way', 'loitering',
+                                  'crowd', 'zone_intrusion', 'abandoned_object', 'accident_candidate',
+                                  'anpr_hit', 'pursuit_sighting', 'manual')),
     status              TEXT  NOT NULL DEFAULT 'pending'
                               CHECK (status IN ('pending', 'confirmed', 'dismissed')),
     reviewed_by         TEXT,
