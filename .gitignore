@@ -27,3 +27,6 @@ clips/
 .idea/
 
 plate_crops
+
+# Generated ground-truth reports from scripts/seed_demo.py
+artifacts/

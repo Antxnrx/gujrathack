@@ -107,6 +107,11 @@ def index_camera(
     detection_count = 0
     alert_count = 0
 
+    # Burst sampling jumps through the 12-hour archive, so ByteTrack restarts its
+    # numbering at each discontinuity. Namespace this run's track_ids so track
+    # aggregation never welds two unrelated vehicles into one track.
+    session_key = f"batch-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{cam_external_id}"
+
     try:
         # FIX #4: pass frame_skip directly to CameraStream instead of mutating global settings
         # FIX #1: loop=False tells the stream to stop after one pass and not loop forever
@@ -125,7 +130,7 @@ def index_camera(
                         det.bbox["x1"]:det.bbox["x2"],
                     ]
                     det.thumbnail_key = upload_thumbnail(crop, det.id, cam_external_id, det.ts)
-                    write_detection(conn, det)
+                    write_detection(conn, det, session_key=session_key)
 
                     hit = watchlist.check(det)
                     if hit:
