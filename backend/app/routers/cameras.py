@@ -96,8 +96,16 @@ async def systems(_: Operator = Depends(current_operator)) -> dict:
                COUNT(*)                                          AS cameras,
                COUNT(*) FILTER (WHERE status = 'active')          AS active,
                COUNT(DISTINCT district)                           AS districts,
-               array_agg(DISTINCT metadata->>'stream_protocol')
-                   FILTER (WHERE metadata->>'stream_protocol' IS NOT NULL) AS protocols,
+               -- COALESCE, because array_agg FILTER returns NULL rather than an
+               -- empty array when no row passes the filter. Cameras imported
+               -- before their protocol is known produce exactly that, and a null
+               -- where the client is promised a list is a crash in the client,
+               -- not a missing value it can render.
+               COALESCE(
+                   array_agg(DISTINCT metadata->>'stream_protocol')
+                       FILTER (WHERE metadata->>'stream_protocol' IS NOT NULL),
+                   '{}'
+               )                                                  AS protocols,
                MIN(camera_uid)                                    AS example_uid
         FROM cameras
         GROUP BY 1, 2

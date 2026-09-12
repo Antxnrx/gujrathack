@@ -1,16 +1,17 @@
-import uuid
 import logging
-from dataclasses import dataclass
-from typing import Optional
-import cv2
-from datetime import datetime, timezone
-from PIL import Image
-import torch
-import numpy as np
 import re
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+import cv2
+import numpy as np
+import torch
+from PIL import Image
 
 from ml.config import settings
-from ml.models import get_yolo, get_clip, get_plate_detector, get_plate_ocr, VEHICLE_CLASSES, device
+from ml.models import VEHICLE_CLASSES, device, get_clip, get_plate_detector, get_plate_ocr, get_yolo
+from ml.plate_validator import validate_plate
 
 log = logging.getLogger(__name__)
 
@@ -18,23 +19,51 @@ import threading
 
 _inference_lock = threading.RLock()
 
+# ── Plate geometry priors ────────────────────────────────────────────────────
+# An Indian plate is 500x110 mm in its single-row form (4.5:1) and 280x200 mm
+# in the two-row form used on motorcycles and some SUVs (1.4:1). The bounds are
+# widened for perspective — a plate viewed off-axis compresses horizontally —
+# but not so far that a whole vehicle passes as one.
+_MIN_PLATE_ASPECT = 1.2
+_MAX_PLATE_ASPECT = 7.0
+# A plate is a small part of the vehicle carrying it. These reject the
+# whole-vehicle boxes the current detector checkpoint returns.
+_MAX_PLATE_HEIGHT_FRAC = 0.5
+_MAX_PLATE_WIDTH_FRAC = 0.9
+# Below this the characters were never sampled; see the per-camera survey in
+# scripts/survey_plate_feasibility.py.
+_MIN_PLATE_WIDTH = 40
+# Plates narrower than this get a mild upscale so the model's own resize has
+# something to work with; wider ones are passed through untouched.
+_SMALL_PLATE_WIDTH = 120
+_MAX_UPSCALE = 2.5
+# How far to widen the detector's plate box before cropping. Measured optimum;
+# see _extract_plate for the sweep.
+_PLATE_BOX_PAD = 0.25
+# The shortest legal Indian plate is 6 characters. The previous floor of 4
+# admitted fragments like "1427", which then outvoted real reads in consensus.
+_MIN_READ_LEN = 6
+# A read with no letters at all is the camera's burned-in clock, not a plate:
+# every Indian registration begins with a two-letter state code.
+_OSD_TEXT = re.compile(r"^[0-9]+$")
+
 @dataclass
 class Detection:
     id: str
     camera_id: str
-    track_id: Optional[int]
+    track_id: int | None
     class_name: str
     bbox: dict
     confidence: float
-    plate_text: Optional[str]
-    plate_confidence: Optional[float]
+    plate_text: str | None
+    plate_confidence: float | None
     embedding: list[float]
-    thumbnail_key: Optional[str]
+    thumbnail_key: str | None
     ts: datetime
     pts_ms: float           # position-in-segment in milliseconds (from CAP_PROP_POS_MSEC)
-    dominant_color: Optional[str]  # HSV colour bucket for NL search precision
-    frame_w: Optional[int] = None  # source frame width — lets normalised zone
-    frame_h: Optional[int] = None  # polygons be tested against pixel bboxes
+    dominant_color: str | None  # HSV colour bucket for NL search precision
+    frame_w: int | None = None  # source frame width — lets normalised zone
+    frame_h: int | None = None  # polygons be tested against pixel bboxes
 
 class DetectionPipeline:
     # ── CLIP zero-shot label sets ─────────────────────────────────────────────
@@ -78,10 +107,22 @@ class DetectionPipeline:
         self.plate_detector = get_plate_detector()
         self.plate_ocr = get_plate_ocr()
 
+        # Where plate reads are lost. Each key is a different remedy: no_box and
+        # not_plate_shaped mean the detector; too_small means camera siting;
+        # too_short and error mean the OCR itself.
+        self._plate_stats = {
+            "seen": 0, "no_box": 0, "low_conf": 0, "bad_box": 0,
+            "not_plate_shaped": 0, "too_small": 0, "no_read": 0,
+            "too_short": 0, "osd_reject": 0, "read": 0, "valid": 0, "error": 0,
+        }
+
         # Pre-encode CLIP label sets once at startup.
         # Shape: (N_labels, 512), L2-normalized — ready for dot-product scoring.
         import open_clip
-        tokenizer = open_clip.get_tokenizer("ViT-B-32")
+        # From settings, not a literal: the checkpoint moved to ViT-B-32-quickgelu
+        # and a tokenizer pinned to a different architecture name is exactly the
+        # kind of drift backend/app/clip_text.py exists to prevent.
+        tokenizer = open_clip.get_tokenizer(settings.clip_model)
         with torch.no_grad():
             cls_tokens = tokenizer(self._CLASS_PROMPTS).to(device)
             cls_embs = self.clip.encode_text(cls_tokens)
@@ -124,7 +165,7 @@ class DetectionPipeline:
 
         yolo_result = results[0]
         boxes = yolo_result.boxes
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         # ── ByteTrack: feed YOLO boxes into this camera's isolated tracker ────
         # tracker.update() returns an (N, 7+) array: [x1,y1,x2,y2,track_id,conf,cls_id]
@@ -231,7 +272,7 @@ class DetectionPipeline:
         except Exception:
             return None, []
 
-    def _extract_color(self, crop_bgr: np.ndarray) -> Optional[str]:
+    def _extract_color(self, crop_bgr: np.ndarray) -> str | None:
         """Dominant colour of the crop using HSV histogram bucketing.
 
         Returns a colour name string suitable for NL search filtering:
@@ -287,54 +328,202 @@ class DetectionPipeline:
         except Exception:
             return "unknown"
 
-    def _extract_plate(self, vehicle_crop: np.ndarray) -> tuple[Optional[str], Optional[float]]:
+    def _extract_plate(self, vehicle_crop: np.ndarray) -> tuple[str | None, float | None]:
+        """Read a plate from one vehicle crop, or return None with a reason logged.
+
+        Structured as four gates, because each rejects a different failure and
+        collapsing them loses the ability to say *why* ANPR produced nothing:
+
+          1. the detector proposed nothing
+          2. it proposed something that is not plate-shaped
+          3. the plate is too few pixels across to carry ten characters
+          4. the OCR read something too short to be a plate
+
+        Only the fourth is a genuine OCR failure, and only measuring them
+        separately tells you whether to change the detector, the camera siting,
+        or the OCR.
+        """
+        stats = self._plate_stats
+        stats["seen"] += 1
         try:
             res = self.plate_detector(vehicle_crop, verbose=False, stream=False)
-            if not res or not res[0].boxes:
+            if not res or res[0].boxes is None or len(res[0].boxes) == 0:
+                stats["no_box"] += 1
                 return None, None
-                
+
             boxes = res[0].boxes
             best_idx = int(boxes.conf.argmax())
             plate_conf = float(boxes.conf[best_idx])
-            
             if plate_conf < settings.plate_conf_threshold:
+                stats["low_conf"] += 1
                 return None, None
-                
+
             px1, py1, px2, py2 = map(int, boxes.xyxy[best_idx].tolist())
-            plate_crop = vehicle_crop[py1:py2, px1:px2]
-            
+            pw, ph = px2 - px1, py2 - py1
+            vh, vw = vehicle_crop.shape[:2]
+
+            # ── Gate 2: is this box even plate-shaped? ───────────────────────
+            # The FarAwayFer checkpoint frequently returns a box covering the
+            # whole vehicle — on real footage it produced entire vans and a bus's
+            # row of marker lights. Feeding that to the OCR asks it to find a
+            # plate inside a car, which it cannot, and the resulting six-character
+            # noise then poisons the track's consensus vote. An Indian plate is
+            # 500x110 mm single-row (~4.5:1) or 280x200 mm two-row (~1.4:1), and
+            # is never half the height of the vehicle carrying it.
+            if pw <= 0 or ph <= 0:
+                stats["bad_box"] += 1
+                return None, None
+            aspect = pw / ph
+            if not (_MIN_PLATE_ASPECT <= aspect <= _MAX_PLATE_ASPECT) \
+                    or ph > vh * _MAX_PLATE_HEIGHT_FRAC \
+                    or pw > vw * _MAX_PLATE_WIDTH_FRAC:
+                stats["not_plate_shaped"] += 1
+                return None, None
+
+            # ── Gate 3: enough pixels to be worth reading? ───────────────────
+            # Measured on this estate: reads are reliable above roughly 100 px of
+            # plate width and are noise below ~55. Attempting them anyway is not
+            # free — a confident wrong read is worse than an honest null, because
+            # consensus will happily average several of them into a plausible
+            # plate that was never on any vehicle.
+            if pw < _MIN_PLATE_WIDTH:
+                stats["too_small"] += 1
+                return None, None
+
+            # Widen the box before cropping. The detector localises the plate
+            # tightly and its edges sit *inside* the characters often enough to
+            # cost the last of them — which on an Indian plate is the registration
+            # number, the part that identifies the vehicle.
+            #
+            # Measured on 70 real crops from the chokepoint cameras, sweeping the
+            # pad and counting reads that come back as a full ten characters:
+            #
+            #     pad     0%   15%   25%   35%   45%
+            #     10-char  0     4    18    11     6
+            #     4-digit  1     4    12     3     1
+            #
+            # Zero full-length reads at a tight crop, eighteen at 25%. Past that
+            # the surrounding bodywork starts to compete with the plate and it
+            # falls away again.
+            pad_x, pad_y = int(pw * _PLATE_BOX_PAD), int(ph * _PLATE_BOX_PAD)
+            ch_, cw_ = vehicle_crop.shape[:2]
+            plate_crop = vehicle_crop[
+                max(0, py1 - pad_y):min(ch_, py2 + pad_y),
+                max(0, px1 - pad_x):min(cw_, px2 + pad_x),
+            ]
             if plate_crop.size == 0:
+                stats["bad_box"] += 1
                 return None, None
-            
-            # ── Preprocessing: upscale + CLAHE + sharpen ──
-            h, w = plate_crop.shape[:2]
-            upscaled = cv2.resize(plate_crop, (w * 3, h * 3), interpolation=cv2.INTER_CUBIC)
-            gray = cv2.cvtColor(upscaled, cv2.COLOR_BGR2GRAY)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(gray)
-            denoised = cv2.bilateralFilter(enhanced, 9, 75, 75)
-            blurred = cv2.GaussianBlur(denoised, (0, 0), 3)
-            plate_processed = cv2.addWeighted(denoised, 1.5, blurred, -0.5, 0)
-            
-            preds = self.plate_ocr.run(plate_processed, return_confidence=True)
+
+            prepared = self._prepare_plate(plate_crop)
+            preds = self.plate_ocr.run(prepared, return_confidence=True)
             if not preds:
+                stats["no_read"] += 1
                 return None, None
-                
-            pred = preds[0]
-            clean_text = re.sub(r'[^A-Z0-9]', '', pred.plate.upper())
-            if len(clean_text) < 4:
+
+            pred = preds[0] if isinstance(preds, list) else preds
+            clean_text = re.sub(r'[^A-Z0-9]', '', (pred.plate or '').upper())
+
+            # ── Gate 4: long enough to be a plate at all? ────────────────────
+            # The old floor was 4, which admitted fragments like "1427" and
+            # "5412". The shortest legal Indian plate is 6 characters
+            # (e.g. DL1C1234 is 8; a 1-digit series on a 1-digit RTO is 6).
+            if len(clean_text) < _MIN_READ_LEN:
+                stats["too_short"] += 1
                 return None, None
-                
-            ocr_conf = float(sum(pred.char_probs) / len(pred.char_probs)) if pred.char_probs is not None and len(pred.char_probs) > 0 else 0.0
-            
-            # ── Indian plate regex validation + fuzzy correction ──
-            from ml.plate_validator import validate_plate
+
+            # ── Gate 5: is this the camera's own clock? ──────────────────────
+            # These cameras burn a date and time into the frame, and on a large
+            # vehicle crop the overlay lands inside the box. It is high-contrast
+            # text on a dark rectangle, which is exactly what a plate detector is
+            # trained to find — observed reads include "18062026" and
+            # "1406622226", i.e. 18/06/2026 and 14/06/2026.
+            #
+            # Every Indian plate begins with two letters, so an all-digit read is
+            # never one. Rejecting it here matters more than it looks: such a read
+            # is not merely useless, it joins the track's consensus vote and drags
+            # the result toward a number that was never on a vehicle.
+            if _OSD_TEXT.match(clean_text):
+                stats["osd_reject"] += 1
+                return None, None
+
+            probs = pred.char_probs
+            ocr_conf = (
+                float(sum(probs) / len(probs))
+                if probs is not None and len(probs) > 0 else 0.0
+            )
+
+            stats["read"] += 1
             validated = validate_plate(clean_text)
             if validated:
+                stats["valid"] += 1
                 return validated, min(plate_conf, ocr_conf)
-            
-            # Return raw text if validation fails (still useful for debugging)
+
+            # An unvalidated read is still returned. It goes to the track-level
+            # consensus in ml/analytics/anpr.py, which aligns several imperfect
+            # reads against each other and is the stage designed to recover the
+            # plate — discarding them here would starve exactly the mechanism
+            # that fixes them.
             return clean_text, min(plate_conf, ocr_conf)
-        except Exception as e:
-            log.warning(f"Plate extraction failed: {e}")
+
+        except Exception as exc:
+            # Loud, and once. A broken OCR previously logged at warning level per
+            # frame and returned None, which is indistinguishable from "no plate
+            # was visible" — so an entirely non-functional ANPR looked exactly
+            # like difficult footage. It is not a per-frame condition; it is a
+            # configuration fault and it should read as one.
+            stats["error"] += 1
+            if stats["error"] == 1 or stats["error"] % 500 == 0:
+                log.error(
+                    "Plate OCR is failing (%d times so far): %s: %s — ANPR is "
+                    "producing nothing. This is a configuration fault, not footage.",
+                    stats["error"], type(exc).__name__, exc,
+                )
             return None, None
+
+    def _prepare_plate(self, plate_crop: np.ndarray) -> np.ndarray:
+        """Put a plate crop into the colour space the loaded OCR expects.
+
+        Deliberately almost nothing happens here, and that is the finding rather
+        than an omission. This previously ran CLAHE, a bilateral filter and an
+        unsharp mask, on the reasonable-sounding theory that a small, dim plate
+        needs help. Measured against the same 70 crops, it was destroying reads:
+
+            preprocessing   mean len   10-char   legal   4-digit tail
+            raw                 8.29        18      17              9
+            upscale 2x          8.31        24      14             10
+            CLAHE               7.01         6      15              7
+            unsharp             8.51        24      11              9
+
+        CLAHE is the clearest loser — it cuts full-length reads by two thirds.
+        These models are trained on ordinary crops and do their own normalisation
+        and resizing internally; equalising first hands them an image unlike
+        anything in their training distribution.
+
+        What survives is a mild upscale for genuinely small plates, where
+        interpolation gives the model's own resize something to work with. Large
+        plates are passed through untouched, because upscaling them only adds
+        interpolation noise to detail that is already there.
+
+        The colour mode comes from the model's config rather than being assumed:
+        grayscale for the MobileViT checkpoint, RGB for the CCT family. Passing
+        the wrong one either raises InvalidArgument or, worse, is silently
+        accepted and quietly degrades every read.
+        """
+        h, w = plate_crop.shape[:2]
+        if w < _SMALL_PLATE_WIDTH and w > 0:
+            scale = min(_MAX_UPSCALE, _SMALL_PLATE_WIDTH / w)
+            plate_crop = cv2.resize(
+                plate_crop, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC
+            )
+
+        cfg = getattr(self.plate_ocr, "config", None)
+        colour = getattr(cfg, "image_color_mode", "grayscale")
+
+        if colour == "grayscale":
+            return cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
+        return cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB)
+
+    def plate_report(self) -> dict:
+        """Where plate reads were lost, as counts. Logged at the end of a run."""
+        return dict(self._plate_stats)

@@ -13,7 +13,6 @@ Example: GJ 14 DX 5823, MH 02 AB 1234, DL 8 C 4567
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 # All valid Indian state/UT codes
 INDIAN_STATE_CODES = {
@@ -64,7 +63,7 @@ def _fix_char(ch: str, expect_digit: bool) -> str:
         return _LETTER_FIXES.get(ch, ch)
 
 
-def correct_plate(raw: str) -> Optional[str]:
+def correct_plate(raw: str) -> str | None:
     """
     Try to correct common OCR errors in an Indian plate string.
 
@@ -151,7 +150,67 @@ def matches_format(text: str) -> bool:
     return bool(m) and m.group(1) in INDIAN_STATE_CODES
 
 
-def validate_plate(raw: str) -> Optional[str]:
+def format_typicality(text: str) -> float:
+    """How *likely* this shape is for a plate in current issue, 0–1.
+
+    ``matches_format`` answers whether a string is legal. Legality is not
+    likelihood, and conflating them is what lets a short read pass as a finished
+    answer. The regex admits a 1-digit tail because ``GJ1A1`` is a real format —
+    but under the 1989 scheme the registration number is issued as **four
+    digits**, and the shorter tails are almost entirely older or special-series
+    registrations. On a modern road scene, a 3-digit tail is far more often an
+    OCR that dropped a character than a genuinely short plate.
+
+    So a read of ``GJ11AB457`` should not be treated as a complete plate. It is
+    a 9-character answer to a 10-character question, and the missing character is
+    usually in the tail where the digits run together.
+
+    This is a prior, not a filter: the score is *returned*, and the caller
+    decides. ``ml/analytics/anpr.py`` uses it to break ties in the consensus beam
+    search, so that a candidate with a full tail wins over an equally-supported
+    truncation, and the UI uses it to mark a read as partial rather than final.
+
+    Weights are ordinal, not fitted — they encode "much more common", not a
+    measured frequency, and they should be replaced by real RTO-issue
+    distributions if those become available.
+    """
+    if not text:
+        return 0.0
+    m = _PLATE_PATTERN.match(text)
+    if not m or m.group(1) not in INDIAN_STATE_CODES:
+        return 0.0
+
+    _state, rto, series, number = m.groups()
+
+    # The registration number. Four digits is the issued form; anything shorter
+    # is either an old plate or, far more often here, a dropped character.
+    tail = {4: 1.0, 3: 0.45, 2: 0.30, 1: 0.20}.get(len(number), 0.2)
+
+    # RTO codes are written with two digits on the plate (GJ 01, not GJ 1).
+    rto_score = 1.0 if len(rto) == 2 else 0.6
+
+    # Series letters: two is the modern norm, one is common on older plates,
+    # three appears once a district exhausts two-letter series.
+    series_score = {2: 1.0, 1: 0.8, 3: 0.7}.get(len(series), 0.5)
+
+    return round(tail * rto_score * series_score, 4)
+
+
+def is_probably_truncated(text: str) -> bool:
+    """True when a read is legal but short enough to be a dropped character.
+
+    Used to mark a plate as *partial* in the console rather than presenting it as
+    a finished read. An operator acting on ``GJ11AB457`` should know that the
+    system believes a character is missing, because searching a registry for the
+    wrong string returns confidently nothing.
+    """
+    m = _PLATE_PATTERN.match(text or "")
+    if not m or m.group(1) not in INDIAN_STATE_CODES:
+        return False
+    return len(m.group(4)) < 4
+
+
+def validate_plate(raw: str) -> str | None:
     """
     Validate and optionally correct an Indian license plate.
 

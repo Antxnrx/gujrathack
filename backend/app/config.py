@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -78,7 +79,16 @@ class BackendSettings(BaseSettings):
     # (see ml/watchlist.py). Any absolute threshold on that number is arbitrary,
     # so it is used for ordering and as a likelihood ratio against a per-camera
     # background — never as a yes/no identity test.
-    clip_model_name: str = "ViT-B-32"
+    # Read from CLIP_MODEL — the same variable ``ml.config`` uses — so one .env
+    # line drives both halves. It used to read CLIP_MODEL_NAME, which meant
+    # setting CLIP_MODEL moved the worker's checkpoint and left the API's text
+    # encoder behind, putting queries and crops in different vector spaces. That
+    # failure has no exception to raise: search just returns confident nonsense.
+    # CLIP_MODEL_NAME is still accepted so existing deployments keep working.
+    clip_model_name: str = Field(
+        default="ViT-B-32-quickgelu",
+        validation_alias=AliasChoices("CLIP_MODEL", "CLIP_MODEL_NAME"),
+    )
     clip_pretrained: str = "openai"
 
     # ── Realtime ────────────────────────────────────────────────────────────

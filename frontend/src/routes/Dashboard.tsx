@@ -72,7 +72,7 @@ export default function Dashboard() {
                 <div key={s.source_system} className="col" style={{ gap: 3 }}>
                   <div className="row small">
                     <span className="grow trunc">{s.source_system}</span>
-                    <span className="mono faint tiny">{s.protocols.join("/") || "—"}</span>
+                    <span className="mono faint tiny">{s.protocols?.join("/") || "—"}</span>
                     <span className="badge">{s.active}/{s.cameras}</span>
                   </div>
                   <Bar value={s.cameras} max={cams.length || 1} />

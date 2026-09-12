@@ -177,7 +177,12 @@ async def model1_health() -> dict:
     """
     if not settings.model1_base_url:
         return {"configured": False, "reachable": None}
-    url = settings.model1_base_url.rstrip("/") + "/health"
+    # Model 1 serves its liveness probe at /healthz, not /health — /health is a
+    # router prefix there and answers 404. Probing the wrong path reported
+    # "reachable, status 404", which is the worst of both readings: it looks
+    # like a live service returning an error, when in fact the service is fine
+    # and the path was wrong.
+    url = settings.model1_base_url.rstrip("/") + "/healthz"
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(url)

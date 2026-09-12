@@ -40,7 +40,7 @@ import math
 import re
 from collections import Counter, defaultdict
 
-from ml.plate_validator import matches_format, validate_plate
+from ml.plate_validator import format_typicality, matches_format, validate_plate
 
 # ── Glyph confusion classes ──────────────────────────────────────────────────
 # Characters within a class are routinely swapped by plate OCR. Membership is
@@ -112,6 +112,10 @@ _METHOD_TRUST: dict[str, float] = {
 _SNAP_BEAM_WIDTH = 12
 _SNAP_TOP_K = 3
 _MAX_SNAP_COST = 2.5
+# How much a typical plate shape may outweigh raw vote score, in nats. Sized to
+# settle near-ties in favour of a full four-digit tail without letting the prior
+# overrule characters the vote actually saw.
+_TYPICALITY_WEIGHT = 0.8
 
 
 def _clean(text: str | None) -> str:
@@ -218,13 +222,28 @@ def _snap(tallies: list[Counter], argmax: str) -> tuple[str, bool, str, float]:
     candidates = _beam_candidates(tallies)
     if candidates:
         best_score = candidates[0][1]
-        for cand, score in candidates:          # already best-first
-            if not matches_format(cand):
-                continue
-            cost = best_score - score
-            if cost <= _MAX_SNAP_COST:
-                return cand, True, "beam_snap", round(cost, 4)
-            break   # anything further down costs at least as much
+        # Every legal candidate inside the budget, not just the first one found.
+        # Taking the first meant the vote alone decided between two legal plates,
+        # and the vote cannot see that one of them is a shape the RTO issues and
+        # the other is a shape that almost always means a dropped character.
+        legal = [
+            (cand, best_score - score)
+            for cand, score in candidates
+            if matches_format(cand) and (best_score - score) <= _MAX_SNAP_COST
+        ]
+        if legal:
+            # Rank by vote cost, discounted by how typical the resulting plate
+            # shape is. _TYPICALITY_WEIGHT is in the same nats as the beam cost,
+            # so it can overturn a near-tie and cannot overturn real evidence:
+            # at 0.8 it buys about the difference between a 4-digit tail (1.0)
+            # and a 3-digit one (0.45), and no more.
+            best = min(
+                legal,
+                key=lambda cs: cs[1] - _TYPICALITY_WEIGHT * math.log(
+                    max(format_typicality(cs[0]), 1e-3)
+                ),
+            )
+            return best[0], True, "beam_snap", round(best[1], 4)
 
     # Nothing legal within budget. Let the validator try its own character
     # fixes; if that fails too, return the raw consensus — an unsnapped string

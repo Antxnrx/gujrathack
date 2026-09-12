@@ -55,11 +55,22 @@ class Settings(BaseSettings):
 
     # ── AI models ────────────────────────────────────────────────────────────
     yolo_model: str = "yolov8s.pt"
-    clip_model: str = "ViT-B-32"
+    clip_model: str = "ViT-B-32-quickgelu"
     clip_pretrained: str = "openai"
-    plate_model: str = "FarAwayFer/yolov8n_license_plate_recognition"
-    plate_ocr_model: str = "global-plates-mobile-vit-v2-model"
-    plate_conf_threshold: float = 0.5
+    # Koushim/yolov8-license-plate-detection, MIT-licensed. Baked off against
+    # FarAwayFer (the incumbent) and morsetechlab v11n/v11m on 150 real crops:
+    # it boxed fewer vehicles but produced the most usable reads (30 vs 23/25/21),
+    # because the boxes it does return are actually plates rather than whole
+    # vehicles. MIT also matters for a government submission — the alternatives
+    # are AGPL-3.0.
+    plate_model: str = "Koushim/yolov8-license-plate-detection/best.pt"
+    plate_ocr_model: str = "cct-s-v2-global-model"
+    # Box confidence for the plate DETECTOR (not the OCR, despite the name in
+    # .env). Held at 0.5 this discarded most true plates: measured on real crops,
+    # only 24 of 60 detections clear 0.25 at all. It is safe to lower now that
+    # _extract_plate rejects boxes on geometry, which is a far better filter for
+    # "this is not a plate" than the detector's own confidence ever was.
+    plate_conf_threshold: float = 0.25
     detection_conf_threshold: float = 0.35
 
     # ── Database ─────────────────────────────────────────────────────────────

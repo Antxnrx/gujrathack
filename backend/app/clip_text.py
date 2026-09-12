@@ -19,7 +19,6 @@ import asyncio
 import logging
 import re
 import threading
-from typing import Optional
 
 from backend.app.config import settings
 
@@ -135,13 +134,22 @@ def describe() -> dict:
         "pretrained": settings.clip_pretrained,
         "device": _device if _model is not None else None,
         "loaded": _model is not None,
+        # Divergence from the worker is now prevented rather than detected: both
+        # halves read CLIP_MODEL, so they cannot be pointed at different
+        # checkpoints. What remains worth checking is the pairing itself. OpenAI's
+        # CLIP uses QuickGELU, and open_clip only applies it when the architecture
+        # name says so — asking for "ViT-B-32" with pretrained="openai" loads the
+        # right weights into the wrong activation and returns embeddings that are
+        # subtly and silently wrong. open_clip warns; nothing fails.
         "matches_pipeline": (
-            settings.clip_model_name == "ViT-B-32" and settings.clip_pretrained == "openai"
+            settings.clip_pretrained != "openai"
+            or settings.clip_model_name.endswith("-quickgelu")
         ),
+        "shared_env_var": "CLIP_MODEL",
     }
 
 
-def cosine(a: list[float], b: list[float]) -> Optional[float]:
+def cosine(a: list[float], b: list[float]) -> float | None:
     """Cosine of two already-L2-normalised vectors. None if either is empty."""
     if not a or not b or len(a) != len(b):
         return None
