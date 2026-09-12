@@ -42,7 +42,10 @@ function setState(s: LiveState) {
 function open() {
   if (source) return;
   setState("connecting");
-  const es = new EventSource("/api/live");
+  // The token rides in the query string because EventSource cannot set headers.
+  // See backend/app/security.py::current_operator for why that trade is made.
+  const tok = localStorage.getItem("setu.token");
+  const es = new EventSource("/api/live" + (tok ? `?access_token=${encodeURIComponent(tok)}` : ""));
   source = es;
 
   // Named events, plus `message` for the keepalive and anything the server adds later.

@@ -3,6 +3,8 @@ import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useAlertSummary, useEventSummary, useHealth, useLiveSync } from "./lib/queries";
 import { watchState, type LiveState } from "./lib/live";
 import { Clock, Skeleton } from "./components/ui";
+import { setToken } from "./lib/api";
+import Login, { consumeTokenFromUrl } from "./routes/Login";
 
 /**
  * Route-level code splitting.
@@ -74,6 +76,28 @@ export default function App() {
   useLiveSync();
   const health = useHealth();
   const d = health.data?.checks?.data;
+  const m1 = health.data?.checks?.model1;
+
+  // Sign-in state lives here rather than in a context: exactly one thing
+  // depends on it — whether the shell renders at all.
+  const [signedIn, setSignedIn] = useState<boolean>(() => {
+    if (consumeTokenFromUrl()) return true;              // arrived from the portal
+    return Boolean(localStorage.getItem("setu.token"));
+  });
+
+  // `requires_auth` is reported by the API rather than guessed from a build
+  // flag, so the console follows the deployment it is actually talking to. The
+  // offline demo runs auth-optional and never shows this screen.
+  if (m1?.requires_auth && !signedIn) {
+    return (
+      <Suspense fallback={<Skeleton rows={4} />}>
+        <Login
+          model1={m1.base_url || "http://localhost:8000"}
+          onSignedIn={() => setSignedIn(true)}
+        />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="shell">
@@ -94,6 +118,15 @@ export default function App() {
             <span className="pill" title="MODEL1_BASE_URL is unset — the API runs in its documented offline mode">
               model 1 offline
             </span>
+          )}
+          {signedIn && m1?.requires_auth && (
+            <button
+              className="btn tiny"
+              title="Clear this token. The registry account is unaffected."
+              onClick={() => { setToken(null); setSignedIn(false); }}
+            >
+              Sign out
+            </button>
           )}
           <Clock />
         </header>

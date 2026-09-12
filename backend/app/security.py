@@ -26,18 +26,17 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 import httpx
 import jwt
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 from jwt import PyJWKClient
 
 from backend.app.config import settings
 
 log = logging.getLogger("setu.api.auth")
 
-_jwk_client: Optional[PyJWKClient] = None
+_jwk_client: PyJWKClient | None = None
 _jwk_client_at: float = 0.0
 
 
@@ -49,7 +48,7 @@ class Operator:
     name: str = ""
     roles: list[str] = field(default_factory=list)
     kind: str = "operator"          # operator | service | local
-    district: Optional[str] = None  # Model 1 may scope a user to a district
+    district: str | None = None  # Model 1 may scope a user to a district
 
     @property
     def label(self) -> str:
@@ -121,10 +120,21 @@ def _operator_from_claims(claims: dict) -> Operator:
 
 
 async def current_operator(
-    authorization: Optional[str] = Header(default=None),
-    x_api_key: Optional[str] = Header(default=None),
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    access_token: str | None = Query(default=None),
 ) -> Operator:
-    """FastAPI dependency: resolve the caller, or 401."""
+    """FastAPI dependency: resolve the caller, or 401.
+
+    ``access_token`` exists for one caller: the SSE stream. ``EventSource`` is
+    the only way a browser subscribes to server-sent events and it cannot set
+    request headers, so a bearer token has nowhere to go. Every SSE
+    implementation solves this the same way, by moving the token into the query
+    string, and the trade is real: query strings reach access logs and Referer
+    headers in a way headers do not. It is accepted here because these tokens are
+    short-lived, the alternative is no realtime under authentication at all, and
+    the header path remains the only one every other endpoint uses.
+    """
     if x_api_key and settings.model1_api_key:
         # Constant-time compare: a length-or-prefix-sensitive `==` on a secret is
         # a timing oracle, and this one is a static key that never rotates.
@@ -140,6 +150,14 @@ async def current_operator(
                 "Bearer token presented but MODEL1_JWKS_URL is not configured",
             )
         return _operator_from_claims(_decode(authorization.split(" ", 1)[1]))
+
+    if access_token:
+        if not settings.model1_jwks_url:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Token presented but MODEL1_JWKS_URL is not configured",
+            )
+        return _operator_from_claims(_decode(access_token))
 
     if settings.require_auth:
         raise HTTPException(
@@ -186,6 +204,16 @@ async def model1_health() -> dict:
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             r = await client.get(url)
-        return {"configured": True, "reachable": r.status_code < 500, "status": r.status_code}
+        return {
+            "configured": True,
+            "reachable": r.status_code < 500,
+            "status": r.status_code,
+            # The console signs operators in against Model 1 directly rather than
+            # through this service, so that a password never transits the
+            # analytics layer. That requires it to know where Model 1 is, and the
+            # base URL is not a secret — the JWKS it serves is public by design.
+            "base_url": settings.model1_base_url.rstrip("/"),
+            "requires_auth": settings.require_auth,
+        }
     except Exception as exc:
         return {"configured": True, "reachable": False, "error": type(exc).__name__}

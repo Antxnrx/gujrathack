@@ -370,3 +370,46 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
   .side .brand span, .nav-link span.lbl, .nav-group { display: none; }
   .split.l, .split.r { grid-template-columns: 1fr; }
 }
+
+/* ── Sign-in ──────────────────────────────────────────────────────────────
+   Shown only when the API reports require_auth and no token is held. It is a
+   full-page surface rather than a modal because there is nothing behind it to
+   return to — the shell has not rendered. */
+.login-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+.login-card {
+  width: min(380px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 28px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.login-head h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+.login-head p { margin: 4px 0 0; }
+.login-note { line-height: 1.5; margin: 0; }
+.login-field { display: flex; flex-direction: column; gap: 5px; }
+.login-field input {
+  padding: 9px 11px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  font: inherit;
+}
+.login-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.login-error {
+  padding: 8px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--bad);
+  color: var(--bad);
+  font-size: 13px;
+}
+.login-foot { margin: 2px 0 0; text-align: center; opacity: 0.6; }
