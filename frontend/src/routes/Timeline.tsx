@@ -7,7 +7,7 @@ import {
 import { ago, dur, fullStamp, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
 import { CameraSelect, EventTypeSelect, StatusSelect, TagSelect, useDebounced } from "../components/Filters";
 import { VirtualList } from "../components/VirtualList";
-import { Empty, ErrorBox, Modal, Pager, Pill, SevDot, Skeleton, Status, Thumb } from "../components/ui";
+import { Empty, ErrorBox, Modal, Pager, Pill, Plate, SevDot, Skeleton, Status, Thumb } from "../components/ui";
 import { useReport } from "../components/Toasts";
 import type { EventRow } from "../lib/types";
 
@@ -197,7 +197,7 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
         {e.pts_ms != null && <><dt>Video offset</dt><dd>{dur(e.pts_ms / 1000)}</dd></>}
         {e.confidence != null && <><dt>Confidence</dt><dd>{pct(e.confidence, 1)}</dd></>}
         {e.zone_name && <><dt>Zone</dt><dd>{e.zone_name}</dd></>}
-        {e.plate_text && <><dt>Plate</dt><dd className="mono">{e.plate_text}</dd></>}
+        {e.plate_text && <><dt>Plate</dt><dd><Plate text={e.plate_text} trust={e.plate_trust} /></dd></>}
         {e.reviewed_by && <><dt>Reviewed</dt><dd>{e.reviewed_by} · {stamp(e.reviewed_at)}</dd></>}
       </dl>
 
@@ -233,7 +233,7 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
                   footage is 17.6%, and the vote across a track is what makes a plate
                   usable at all. The read count is shown because it is the evidence. */}
               <dt>Plate</dt>
-              <dd>{track.plate_text ? `${track.plate_text} (${pct(track.plate_confidence, 0)}, ${track.plate_read_count} reads)` : "—"}</dd>
+              <dd>{track.plate_text ? <Plate text={track.plate_text} trust={track.plate_trust} /> : "—"}</dd>
               {track.heading_deg != null && <><dt>Heading</dt><dd>{Math.round(track.heading_deg)}°</dd></>}
             </dl>
           </div>

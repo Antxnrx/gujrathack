@@ -115,6 +115,8 @@ async def list_events(
     )
     body = paginate(rows, limit, offset)
     await storage.attach_thumbnails(body["items"])
+
+    storage.attach_plate_trust(body["items"])
     return body
 
 

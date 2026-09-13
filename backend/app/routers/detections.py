@@ -91,6 +91,8 @@ async def list_detections(
     )
     body = paginate(rows, limit, offset)
     await storage.attach_thumbnails(body["items"])
+
+    storage.attach_plate_trust(body["items"])
     return body
 
 
@@ -178,6 +180,8 @@ async def list_tracks(
     )
     body = paginate(rows, limit, offset)
     await storage.attach_thumbnails(body["items"])
+
+    storage.attach_plate_trust(body["items"])
     return body
 
 

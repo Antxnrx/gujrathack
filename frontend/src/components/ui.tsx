@@ -156,3 +156,33 @@ export function Clock() {
   }, []);
   return <span className="mono dim small">{hhmmss(now)} IST</span>;
 }
+
+/**
+ * A plate, shown with how far it can be trusted.
+ *
+ * Measured on this estate, 89% of consensus plates sit in the confidence band
+ * that was never once exactly right against human-read ground truth, and 2% sit
+ * in the band that was always right. Rendering all of them as the same
+ * monospace string tells an operator something false — and a plate is the field
+ * most likely to be acted on, because it reads as a fact in a way a percentage
+ * does not.
+ *
+ * The text is never hidden. A weak read is still a lead worth following, and the
+ * operator looking at the crop is better placed to judge it than a threshold is.
+ * What changes is that an unreliable read now looks unreliable.
+ */
+export function Plate(
+  { text, trust, className = "" }:
+  { text?: string | null; trust?: { tier?: string; label?: string; guidance?: string } | null; className?: string },
+) {
+  if (!text) return <span className="faint">—</span>;
+  const tier = trust?.tier ?? "unknown";
+  const note = trust ? `${trust.label} — ${trust.guidance}` : undefined;
+  return (
+    <span className={`plate plate-${tier} ${className}`} title={note}>
+      <span className="mono">{text}</span>
+      {tier === "verify" && <i className="plate-flag">unverified</i>}
+      {tier === "lead" && <i className="plate-flag">low confidence</i>}
+    </span>
+  );
+}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useFacets, useSearch, useCameras, useDistricts, useCreateEvidence } from "../lib/queries";
 import { dur, fullStamp, num, pct, stamp } from "../lib/format";
-import { Empty, ErrorBox, Modal, Pager, Pill, Skeleton, Thumb } from "../components/ui";
+import { Empty, ErrorBox, Modal, Pager, Pill, Plate, Skeleton, Thumb } from "../components/ui";
 import { useReport } from "../components/Toasts";
 import { useDebounced } from "../components/Filters";
 
@@ -229,7 +229,7 @@ export default function SearchView() {
                 <Thumb src={it.thumbnail_url} label={it.class ?? "crop"} />
                 <div className="row" style={{ gap: 6 }}>
                   {it.plate_text
-                    ? <b className="mono">{it.plate_text}</b>
+                    ? <Plate text={it.plate_text} trust={it.plate_trust} />
                     : <span className="faint tiny">no plate read</span>}
                   {it.plate_confidence != null && <span className="tiny faint">{pct(it.plate_confidence, 0)}</span>}
                   {level === "track" && it.plate_read_count > 0 && (

@@ -24,6 +24,11 @@ from typing import Optional
 
 from backend.app.config import settings
 
+# The plate vocabulary lives in the analytics layer; the API reads it rather than
+# restating what a trustworthy read is.
+from ml import plate_trust
+from ml.plate_validator import is_probably_truncated
+
 log = logging.getLogger("setu.api.storage")
 
 _client = None
@@ -88,6 +93,32 @@ async def attach_thumbnails(rows: list[dict], key_field: str = "thumbnail_key") 
     urls = await presign_many([r.get(key_field) for r in rows])
     for r in rows:
         r["thumbnail_url"] = urls.get(r.get(key_field)) if r.get(key_field) else None
+    return rows
+
+
+def attach_plate_trust(rows: list[dict]) -> list[dict]:
+    """Tag every row carrying a plate with how far that plate can be trusted.
+
+    Measured on this estate, 89% of consensus plates fall in the band that was
+    never once exactly right, 9% in the band that was right a quarter of the
+    time, and 2% in the band that was right every time. A list that renders all
+    ninety-two identically is therefore telling the operator something false —
+    and it is the kind of false that gets acted on, because a plate looks like a
+    fact in a way a confidence bar does not.
+
+    The row keeps its ``plate_text`` either way: suppressing a weak read would
+    lose a genuine lead, and the operator who can see the crop is better placed
+    to judge it than a threshold is. What changes is that the row now says which
+    of the three it is.
+    """
+    for r in rows:
+        if not r.get("plate_text"):
+            continue
+        r["plate_trust"] = plate_trust.describe(
+            r.get("plate_confidence"),
+            read_count=r.get("plate_read_count"),
+            truncated=is_probably_truncated(r["plate_text"]),
+        )
     return rows
 
 

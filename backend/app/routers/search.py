@@ -223,6 +223,8 @@ async def search(
     body = paginate(rows, limit, req.offset)
     await storage.attach_thumbnails(body["items"])
 
+    storage.attach_plate_trust(body["items"])
+
     body["query"] = {
         "level": req.level,
         "plate_mode": plate_mode,
