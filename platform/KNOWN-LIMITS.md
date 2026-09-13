@@ -214,6 +214,33 @@ three. Renaming the directory would remove the whole class of problem.
 
 ---
 
+## Live ingestion
+
+**The live worker has been run, and the whole chain works unattended.** Until
+recently every one of the 62,000 detections came from batch indexing — zero from
+`ml/worker.py`. That is no longer true: a 100-frame run on cam06 wrote 572
+detections, the analytics service folded them into 24 tracks sixty seconds later
+without being asked, read two plates and raised four zone intrusions.
+
+**What it is not is a live camera.** The gateway serves
+`#EXT-X-PLAYLIST-TYPE:VOD`: a recording, not a live edge. This is live ingestion
+of a streaming source. The code path is identical for a genuine live feed — the
+difference is in the playlist, and the player reads the playlist rather than
+assuming.
+
+**One camera, not thirty.** The pipeline runs YOLO, CLIP, a plate detector and an
+OCR on every processed frame — 2–6 passes per second per camera at
+`FRAME_SKIP=5`. Thirty cameras is 60–180 inference passes a second, which is a
+GPU box, not a laptop. A deployment either sizes the hardware for it or gives
+each camera a frame budget: full rate at the seven chokepoints that can read a
+plate, one frame a second at the overview cameras that cannot.
+
+**Nothing bounds growth.** There is no retention policy. Crops are small (3.4 KB
+mean, ~13 GB/month at thirty cameras) but `detections` grows without limit, and
+nothing prunes either.
+
+---
+
 ## What is *not* a limitation
 
 Worth stating, because these are the usual suspects:

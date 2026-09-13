@@ -322,6 +322,48 @@ Run the canvass again signed in as the analyst with **Open a case file** ticked.
 
 ---
 
+## The live pipeline, run in front of them (2 minutes)
+
+Worth doing last, because it answers the question a judge will ask: *is any of
+this live, or is it a database of old results?*
+
+```bash
+CAMERAS=cam06 python -m ml.worker        # the inference worker, one camera
+tail -f /tmp/setu-analytics.log          # the fold, already running
+```
+
+> "Nothing is pre-computed here. The worker signs in to the gateway, pulls the
+> stream, and runs YOLO, CLIP and the plate reader on every fifth frame. Watch
+> the analytics log — it has been idle all evening."
+
+Measured on the run that produced this page:
+
+| | |
+|---|---|
+| frames processed | 100 in ~60 s |
+| detections written | **572** |
+| tracks folded | **24** |
+| plates read | 2 — `GJ32AG2883`, `GJ32AG2983` |
+| events raised | 4 zone intrusions |
+
+> "The fold picked those up on its own, sixty seconds later, and the console
+> updated without a refresh. Nobody ran anything between the camera and the
+> screen."
+
+```
+23:41:53  6 track(s) folded from 55 detection(s) · 1 new event(s)
+23:42:55  23 track(s) folded from 348 detection(s) · 3 new event(s)
+```
+
+**Say the caveat before they find it.** The gateway serves
+`#EXT-X-PLAYLIST-TYPE:VOD` — a twelve-hour recording, not a live edge. So this is
+live *ingestion* of a streaming source, not a camera filming now. The code path
+is the same one a live camera uses; what changes on the day real feeds arrive is
+the playlist, and the player already reads the playlist and will say `live`
+instead of `recorded` by itself.
+
+---
+
 ## Questions you should want
 
 **"Is any of this synthetic?"**
