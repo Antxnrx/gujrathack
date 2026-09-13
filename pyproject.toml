@@ -70,3 +70,12 @@ select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's dependency-injection idiom *is* a function call in an argument
+# default — Depends(), Query(), Header(), File(). B008 flags all of them.
+# Restructuring to satisfy it would mean giving up the signature-driven
+# validation and the generated OpenAPI schema, which is the whole reason the
+# framework is here. Scoped to the two places that declare dependencies.
+"backend/app/routers/*" = ["B008"]
+"backend/app/security.py" = ["B008"]
