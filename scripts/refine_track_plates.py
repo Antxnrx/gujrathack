@@ -46,7 +46,7 @@ import psycopg2
 import psycopg2.extras
 from minio import Minio
 
-from ml.plate_validator import matches_format
+from ml.plate_validator import validate_plate
 
 log = logging.getLogger("setu.refine")
 
@@ -96,7 +96,7 @@ def main() -> None:
     tracks = cur.fetchall()
     log.info("%d tracks with a plate and a crop", len(tracks))
 
-    examined = read_ok = replaced = kept = 0
+    examined = read_ok = replaced = kept = rejected = 0
     started = time.time()
 
     for t in tracks:
@@ -133,13 +133,26 @@ def main() -> None:
             continue
         read_ok += 1
 
-        # The vote keeps its answer unless the crop's read is both legal and
-        # confident. "Legal" alone is not enough — a confidently wrong legal
-        # plate is the most dangerous output this system can produce.
-        if not (matches_format(best.text) and best.confidence >= args.min_conf):
+        # Repair the read against the registration template before judging it.
+        # This path used to test the raw string with ``matches_format``, which
+        # is a pure predicate — so a crop read as ``GJ11C05760`` was thrown away
+        # for having a five-digit tail, when the sixth character of a
+        # ten-character plate is a letter and the answer was ``GJ11CO5760``. The
+        # grammar was already written; this path simply never called it.
+        repaired = validate_plate(best.text)
+        if repaired is None:
+            # Includes the case where the OCR said UNREADABLE.
+            rejected += 1
             kept += 1
             continue
-        if best.text == t["plate_text"]:
+
+        # The vote keeps its answer unless the crop's read is confident.
+        # Legality alone is not enough — a confidently wrong legal plate is the
+        # most dangerous output this system can produce.
+        if best.confidence < args.min_conf:
+            kept += 1
+            continue
+        if repaired == t["plate_text"]:
             kept += 1
             continue
 
@@ -153,13 +166,15 @@ def main() -> None:
             "consensus_confidence": float(t["plate_confidence"] or 0),
             "best_crop_backend": best.backend,
             "best_crop_confidence": round(best.confidence, 4),
+            "best_crop_raw": best.text,
+            "best_crop_repaired": repaired != best.text,
         })
 
         if not args.dry_run:
             write.execute(
                 "UPDATE tracks SET plate_text=%s, plate_confidence=%s, plate_votes=%s::jsonb "
                 "WHERE id=%s",
-                (best.text, best.confidence, json.dumps(votes), t["id"]),
+                (repaired, best.confidence, json.dumps(votes), t["id"]),
             )
         replaced += 1
 
@@ -173,6 +188,7 @@ def main() -> None:
     print(f"{'':-<56}")
     print(f"  tracks examined          {examined}   in {(time.time()-started)/60:.1f} min")
     print(f"  best crop produced a read {read_ok}")
+    print(f"  not a registration       {rejected}")
     print(f"  replaced the consensus   {replaced}")
     print(f"  consensus kept           {kept}")
     print(f"{'':-<56}")

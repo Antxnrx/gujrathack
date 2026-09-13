@@ -20,7 +20,8 @@ Plate search is two-stage on purpose. An exact match on the consensus plate is t
 answer when it exists; when it does not, a trigram similarity search over
 ``plate_text`` finds the reads that are one OCR confusion away, and those are
 returned *marked* as fuzzy rather than mixed in silently. ``scripts/score_anpr.py``
-measured single-read exact accuracy at 17.6% against 85.2% for the consensus plate,
+measured against fifteen plates read by eye, the system is exactly right 67% of
+the time and one character out in most of the rest,
 so a search that only ever did exact matching would miss most of the fleet.
 
 Track level by default

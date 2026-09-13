@@ -229,7 +229,8 @@ export default function SearchView() {
                 <Thumb src={it.thumbnail_url} label={it.class ?? "crop"} />
                 <div className="row" style={{ gap: 6 }}>
                   {it.plate_text
-                    ? <Plate text={it.plate_text} trust={it.plate_trust} />
+                    ? <Plate text={it.plate_text} trust={it.plate_trust}
+                             origin={it.plate_origin} rtoKnown={it.rto_known} />
                     : <span className="faint tiny">no plate read</span>}
                   {it.plate_confidence != null && <span className="tiny faint">{pct(it.plate_confidence, 0)}</span>}
                   {level === "track" && it.plate_read_count > 0 && (

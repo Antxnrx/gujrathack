@@ -30,8 +30,9 @@ import os
 
 import psycopg2
 
+from ml import rto
 from ml.plate_trust import plate_trust
-from ml.plate_validator import is_probably_truncated
+from ml.plate_validator import is_probably_truncated, matches_format
 
 DB = "postgresql://setu:setu_dev_only@localhost:5434/setu"
 TRUTH_FILES = ["artifacts/plate_truth.json", "artifacts/plate_truth_ext.json"]
@@ -129,6 +130,32 @@ def main() -> None:
         for cam, t, got, conf, reads, tier in misses[:args.show_misses]:
             print(f"    {cam:<7} truth {t:<12} read {got:<12} "
                   f"conf {conf:.2f}  reads {reads}  {tier}")
+
+    # ── Estate-wide: is what we present even a registration? ────────────────
+    # This is a *consistency* measure, not an accuracy one, and the difference
+    # matters. It cannot tell a correct plate from a legal-looking wrong one —
+    # only the hand-read set above can do that. What it can do is cover all
+    # 2,000 tracks instead of fifteen, and catch the failure the hand-read set
+    # structurally cannot see: a string that is not a plate at all being
+    # presented to an officer as a vehicle's identity. Thirty-four of these
+    # were live in this estate, twenty of them the OCR's own misspelled word
+    # UNREADABLE.
+    cur.execute("SELECT plate_text FROM tracks WHERE plate_text IS NOT NULL")
+    presented = [r[0] for r in cur.fetchall()]
+    illegal = [p for p in presented if not matches_format(p)]
+    no_rto = [p for p in presented if not rto.is_known_rto(p)]
+    print()
+    print(f"{'':-<64}")
+    print(f"  estate-wide, every track shown with a plate   {len(presented)}")
+    print(f"    a legal Indian registration                 "
+          f"{len(presented) - len(illegal)}"
+          f"  ({100 * (len(presented) - len(illegal)) / max(len(presented),1):.0f}%)")
+    print(f"    naming an RTO that has been issued          "
+          f"{len(presented) - len(no_rto)}"
+          f"  ({100 * (len(presented) - len(no_rto)) / max(len(presented),1):.0f}%)")
+    if illegal:
+        print(f"    not a registration                          {len(illegal)}"
+              f"   {', '.join(sorted(set(illegal))[:6])}")
 
 
 if __name__ == "__main__":

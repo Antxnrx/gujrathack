@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import re
 
+from ml import rto
+
 # All valid Indian state/UT codes
 INDIAN_STATE_CODES = {
     "AN", "AP", "AR", "AS", "BR", "CG", "CH", "DD", "DL", "GA",
@@ -24,12 +26,13 @@ INDIAN_STATE_CODES = {
 
 # Common OCR character confusions: what the OCR reads → what it should be
 # Context-dependent: letters in letter positions, digits in digit positions
+# Positional coercion now lives in ml/rto.py (TO_LETTER / TO_DIGIT), which
+# applies it against the registration template rather than a guessed split.
+# What remains here is the state-code repair, which is a different problem: the
+# first two characters are letters under every template, so class coercion
+# never helps and only a letter→letter substitution can rescue them.
 _LETTER_FIXES = {
     "0": "O", "1": "I", "2": "Z", "5": "S", "8": "B",
-}
-_DIGIT_FIXES = {
-    "O": "0", "I": "1", "Z": "2", "S": "5", "B": "8",
-    "D": "0", "G": "6", "T": "7", "A": "4", "Q": "0",
 }
 
 # For state code correction: letter→letter confusions that produce wrong state codes
@@ -55,83 +58,102 @@ _PLATE_PATTERN = re.compile(
 )
 
 
-def _fix_char(ch: str, expect_digit: bool) -> str:
-    """Apply contextual OCR correction for a single character."""
-    if expect_digit:
-        return _DIGIT_FIXES.get(ch, ch)
-    else:
-        return _LETTER_FIXES.get(ch, ch)
+def _repair_state(candidate: str) -> str | None:
+    """Nudge an unrecognised state code onto a real one, or give up.
+
+    Only the letter↔letter confusions that actually produce state codes are
+    tried (``GI`` → ``GJ``), plus the digit→letter fixes. A code that is not a
+    state after that is left alone, because inventing a state is how a plate
+    from nowhere acquires a jurisdiction.
+    """
+    state = candidate[:2]
+    if state in INDIAN_STATE_CODES:
+        return candidate
+    s0, s1 = state[0], state[1]
+    alts0 = [s0] + _STATE_LETTER_ALTS.get(s0, []) + [_LETTER_FIXES.get(s0, s0)]
+    alts1 = [s1] + _STATE_LETTER_ALTS.get(s1, []) + [_LETTER_FIXES.get(s1, s1)]
+    for c0 in alts0:
+        for c1 in alts1:
+            if c0 + c1 in INDIAN_STATE_CODES:
+                return c0 + c1 + candidate[2:]
+    return None
+
+
+# Each character the template had to rewrite halves the parse's score. See
+# correct_plate's docstring for the two real reads that pin this value.
+_EDIT_PENALTY = 0.5
 
 
 def correct_plate(raw: str) -> str | None:
+    """Try to correct common OCR errors in an Indian plate string.
+
+    The read is fitted to each registration template in ``ml.rto.SHAPES`` —
+    ``XX00XX0000`` and the legal shorter forms — with every glyph coerced to the
+    character class its position requires. That is where most of the recovery
+    happens, and it is recovery rather than guessing: the sixth character of a
+    ten-character plate is a letter by construction, so a ``0`` read there is an
+    ``O``, and a ``Q`` that the model produced for the same round glyph is
+    resolved the same way.
+
+    Candidates are then scored rather than taken first-fit, on three factors:
+
+        format typicality   a four-digit tail is the issued form and a two-digit
+                            RTO is how districts are written; the shorter forms
+                            are real but much rarer
+        RTO plausibility    ``GJ28`` has never been allocated, so a read that
+                            parses to it is a misread digit, not a rare vehicle
+        edit conservatism   every character the template had to rewrite halves
+                            the parse's score
+
+    The third is what keeps the first two honest, and both directions of getting
+    it wrong showed up on real reads here:
+
+        GJ11AB457    a three-digit tail, so the typicality prior alone preferred
+                     rewriting the legibly-read ``B`` into an ``8`` to
+                     manufacture ``GJ11A8457``. The prior must not be allowed to
+                     buy a character it did not see.
+        GJ1IC05532   the cheapest parse by edit count is ``GJ1ICO5532`` — one
+                     rewrite, reading it as RTO 1 with a three-letter series.
+                     The truth is ``GJ11CO5532``, two rewrites onto the
+                     canonical template. So edit count must not dominate
+                     absolutely either.
+
+    Between them those two pin the penalty to roughly 0.42–0.56 per character;
+    0.5 sits in the middle and is what a halving means. Both cases are in the
+    test suite, because this is a number that a later tweak would otherwise
+    silently break.
+
+    Returns the corrected plate, or ``None`` when nothing legal survives.
     """
-    Try to correct common OCR errors in an Indian plate string.
-
-    Applies context-dependent character fixes based on where letters vs digits
-    are expected in the Indian plate format, then validates against the pattern.
-
-    Returns the corrected plate string if it matches, or None if unrecoverable.
-    """
-    if not raw or len(raw) < 6:
-        return None
-
-    text = re.sub(r"[^A-Z0-9]", "", raw.upper())
+    text = rto.clean(raw)
     if len(text) < 6:
         return None
+    if rto.is_abstention(text):
+        return None
 
-    # Strategy: try multiple interpretations of where the letter/digit
-    # boundaries fall and see which one produces a valid plate.
+    best: tuple[str, float] | None = None
 
-    best = None
+    for shape in rto.SHAPES:
+        coerced = rto.coerce(text, shape)
+        if coerced is None:
+            continue
+        candidate = _repair_state(coerced)
+        if candidate is None:
+            continue
+        m = _PLATE_PATTERN.match(candidate)
+        if not m or m.group(1) not in INDIAN_STATE_CODES:
+            continue
 
-    for district_len in (1, 2):
-        for series_len in (1, 2, 3):
-            # State is always first 2 chars
-            min_len = 2 + district_len + series_len + 1  # at least 1 digit at end
-            if len(text) < min_len:
-                continue
-
-            state_end = 2
-            district_end = state_end + district_len
-            series_end = district_end + series_len
-
-            # Apply contextual corrections
-            corrected = []
-            for i, ch in enumerate(text):
-                if i < state_end:
-                    corrected.append(_fix_char(ch, expect_digit=False))
-                elif i < district_end:
-                    corrected.append(_fix_char(ch, expect_digit=True))
-                elif i < series_end:
-                    corrected.append(_fix_char(ch, expect_digit=False))
-                else:
-                    corrected.append(_fix_char(ch, expect_digit=True))
-
-            candidate = "".join(corrected)
-            m = _PLATE_PATTERN.match(candidate)
-            if m:
-                state = m.group(1)
-                # If state code isn't valid, try common OCR corrections on it
-                if state not in INDIAN_STATE_CODES:
-                    # Try fixing each char in the state code using letter alternatives
-                    s0, s1 = state[0], state[1]
-                    alts0 = [s0] + _STATE_LETTER_ALTS.get(s0, []) + [_LETTER_FIXES.get(s0, s0)]
-                    alts1 = [s1] + _STATE_LETTER_ALTS.get(s1, []) + [_LETTER_FIXES.get(s1, s1)]
-                    found = False
-                    for c0 in alts0:
-                        for c1 in alts1:
-                            if c0 + c1 in INDIAN_STATE_CODES:
-                                candidate = c0 + c1 + candidate[2:]
-                                state = c0 + c1
-                                found = True
-                                break
-                        if found:
-                            break
-
-                if state in INDIAN_STATE_CODES:
-                    score = len(m.group(4))
-                    if best is None or score > best[1]:
-                        best = (candidate, score)
+        # The state repair is an edit too, and an expensive one — it rewrites
+        # the jurisdiction — so it is counted rather than waved through.
+        changed = rto.edits(text, coerced) + (0 if candidate == coerced else 1)
+        score = (format_typicality(candidate)
+                 * rto.rto_plausibility(m.group(1), m.group(2))
+                 * (_EDIT_PENALTY ** changed))
+        if score <= 0:
+            continue
+        if best is None or score > best[1]:
+            best = (candidate, score)
 
     return best[0] if best else None
 
@@ -180,14 +202,14 @@ def format_typicality(text: str) -> float:
     if not m or m.group(1) not in INDIAN_STATE_CODES:
         return 0.0
 
-    _state, rto, series, number = m.groups()
+    _state, rto_code, series, number = m.groups()
 
     # The registration number. Four digits is the issued form; anything shorter
     # is either an old plate or, far more often here, a dropped character.
     tail = {4: 1.0, 3: 0.45, 2: 0.30, 1: 0.20}.get(len(number), 0.2)
 
     # RTO codes are written with two digits on the plate (GJ 01, not GJ 1).
-    rto_score = 1.0 if len(rto) == 2 else 0.6
+    rto_score = 1.0 if len(rto_code) == 2 else 0.6
 
     # Series letters: two is the modern norm, one is common on older plates,
     # three appears once a district exhausts two-letter series.
@@ -211,22 +233,28 @@ def is_probably_truncated(text: str) -> bool:
 
 
 def validate_plate(raw: str) -> str | None:
-    """
-    Validate and optionally correct an Indian license plate.
+    """Validate and, where the grammar allows, correct an Indian plate.
 
-    Returns:
-        The cleaned/corrected plate if valid, or None if it doesn't match
-        the Indian plate format even after correction attempts.
+    Returns the cleaned plate, or ``None`` when the read is not a registration
+    — including when the OCR has said so itself (see ``rto.is_abstention``).
+    ``None`` is a real answer here and callers must treat it as one: storing an
+    unvalidated read as a vehicle's plate is how twenty cars in this estate came
+    to be registered ``UNREADBLE``.
     """
     if not raw:
         return None
 
-    text = re.sub(r"[^A-Z0-9]", "", raw.upper())
+    text = rto.clean(raw)
+    if rto.is_abstention(text):
+        return None
 
-    # First check if it already matches perfectly
+    # A read that is already a legal plate is kept as read. Correction is still
+    # attempted, because a legal parse is not always the best one — but it has
+    # to beat what the OCR actually saw, and ties go to the read.
     m = _PLATE_PATTERN.match(text)
-    if m and m.group(1) in INDIAN_STATE_CODES:
-        return text
+    already_legal = bool(m) and m.group(1) in INDIAN_STATE_CODES
 
-    # Try correction
-    return correct_plate(text)
+    corrected = correct_plate(text)
+    if already_legal:
+        return corrected or text
+    return corrected

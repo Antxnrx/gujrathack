@@ -172,17 +172,35 @@ export function Clock() {
  * What changes is that an unreliable read now looks unreliable.
  */
 export function Plate(
-  { text, trust, className = "" }:
-  { text?: string | null; trust?: { tier?: string; label?: string; guidance?: string } | null; className?: string },
+  { text, trust, origin, rtoKnown, showOrigin = false, className = "" }:
+  {
+    text?: string | null;
+    trust?: { tier?: string; label?: string; guidance?: string } | null;
+    /** "GJ 11 · Junagadh" — the registering authority, read off the plate itself. */
+    origin?: string | null;
+    /** False when the RTO code is one Gujarat has never issued. */
+    rtoKnown?: boolean;
+    showOrigin?: boolean;
+    className?: string;
+  },
 ) {
   if (!text) return <span className="faint">—</span>;
   const tier = trust?.tier ?? "unknown";
-  const note = trust ? `${trust.label} — ${trust.guidance}` : undefined;
+  // An unissued RTO code is a reason to distrust the read, so it belongs in the
+  // same tooltip as the confidence tiering rather than in a separate affordance
+  // the operator has to go looking for.
+  const note = [
+    trust ? `${trust.label} — ${trust.guidance}` : null,
+    origin,
+    rtoKnown === false ? "No RTO is registered under this code — treat the read as suspect" : null,
+  ].filter(Boolean).join("\n") || undefined;
   return (
     <span className={`plate plate-${tier} ${className}`} title={note}>
       <span className="mono">{text}</span>
       {tier === "verify" && <i className="plate-flag">unverified</i>}
       {tier === "lead" && <i className="plate-flag">low confidence</i>}
+      {rtoKnown === false && <i className="plate-flag plate-flag-bad">unknown RTO</i>}
+      {showOrigin && origin && <i className="plate-origin">{origin}</i>}
     </span>
   );
 }

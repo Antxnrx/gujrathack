@@ -22,7 +22,20 @@ export type EventStatus = "new" | "acknowledged" | "resolved" | "false_positive"
 
 export interface Tag { id: string; name: string; color: string; kind: string; usage?: number }
 
-export interface EventRow {
+/** What the backend attaches alongside every plate it returns.
+ *
+ * `plate_trust` is how far the read can be trusted; `plate_origin` is the
+ * registering authority the plate itself names ("GJ 11 · Junagadh"); and
+ * `rto_known` is false for a code Gujarat has never issued, which is a reason
+ * to distrust a read even when every character looks crisp. */
+export interface PlateMeta {
+  plate_trust?: { tier: string; label: string; guidance: string } | null;
+  plate_district?: string | null;
+  plate_origin?: string | null;
+  rto_known?: boolean;
+}
+
+export interface EventRow extends PlateMeta {
   id: string;
   camera_id: string;
   event_type: string;
@@ -94,7 +107,7 @@ export interface SourceSystem {
   example_uid: string | null;
 }
 
-export interface TrackRow {
+export interface TrackRow extends PlateMeta {
   id: string;
   camera_id: string;
   track_id: number;
@@ -121,7 +134,7 @@ export interface TrackRow {
   district: string | null;
 }
 
-export interface AlertRow {
+export interface AlertRow extends PlateMeta {
   id: string;
   alert_type: string;
   status: string;

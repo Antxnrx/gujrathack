@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from ml import rto
 from ml.config import settings
 from ml.models import VEHICLE_CLASSES, device, get_clip, get_plate_detector, get_plate_ocr, get_yolo
 from ml.plate_validator import validate_plate
@@ -105,11 +106,15 @@ class DetectionPipeline:
 
         # Where plate reads are lost. Each key is a different remedy: no_box and
         # not_plate_shaped mean the detector; too_small means camera siting;
-        # too_short and error mean the OCR itself.
+        # too_short, abstained and error mean the OCR itself. ``abstained`` is
+        # the only one the model reports about itself, and a camera where it
+        # dominates is a camera whose plates are physically unreadable — which
+        # is siting, not software.
         self._plate_stats = {
             "seen": 0, "no_box": 0, "low_conf": 0, "bad_box": 0,
             "not_plate_shaped": 0, "too_small": 0, "no_read": 0,
-            "too_short": 0, "osd_reject": 0, "read": 0, "valid": 0, "error": 0,
+            "too_short": 0, "osd_reject": 0, "abstained": 0,
+            "read": 0, "valid": 0, "error": 0,
         }
 
         # Pre-encode CLIP label sets once at startup.
@@ -442,6 +447,20 @@ class DetectionPipeline:
             # the result toward a number that was never on a vehicle.
             if _OSD_TEXT.match(clean_text):
                 stats["osd_reject"] += 1
+                return None, None
+
+            # ── Gate 6: did the model decline to read it? ────────────────────
+            # The India-specific OCR emits the literal word UNREADABLE on crops
+            # it cannot resolve — a label artefact of its training set, and the
+            # only circumstance in which it abstains at all. Asked to read solid
+            # black it answers "A22251"; asked to read noise, "ALEE" at 0.49
+            # confidence. There is no null output, so this is the nearest thing
+            # to one and it is worth more than its confidence score.
+            #
+            # Twenty vehicles across ten cameras reached operators registered as
+            # UNREADBLE, UNRADBLE and UNREADBL3 before this gate existed.
+            if rto.is_abstention(clean_text):
+                stats["abstained"] += 1
                 return None, None
 
             ocr_conf = read.confidence

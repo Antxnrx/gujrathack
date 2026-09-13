@@ -451,3 +451,19 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 .plate-verify .plate-flag { color: var(--warn, #dda451); border: 1px solid currentColor; }
 .plate-lead .mono { opacity: 0.6; text-decoration: underline dotted currentColor; text-underline-offset: 3px; }
 .plate-lead .plate-flag { color: var(--dim, #8a99ad); border: 1px solid currentColor; }
+
+/* An RTO code that was never issued is a different failure from a weak read:
+   the characters may be crisp and the registration still cannot exist. It gets
+   the one colour reserved for "this is wrong", regardless of the trust tier. */
+.plate-flag-bad {
+  color: var(--bad, #e06c6c);
+  border: 1px solid currentColor;
+}
+/* The registering district, shown where there is room for it. Quiet by
+   default — it is context for a plate, never a competitor to it. */
+.plate-origin {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--dim, #8a99ad);
+  white-space: nowrap;
+}

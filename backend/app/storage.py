@@ -26,7 +26,7 @@ from backend.app.config import settings
 
 # The plate vocabulary lives in the analytics layer; the API reads it rather than
 # restating what a trustworthy read is.
-from ml import plate_trust
+from ml import plate_trust, rto
 from ml.plate_validator import is_probably_truncated
 
 log = logging.getLogger("setu.api.storage")
@@ -119,6 +119,15 @@ def attach_plate_trust(rows: list[dict]) -> list[dict]:
             read_count=r.get("plate_read_count"),
             truncated=is_probably_truncated(r["plate_text"]),
         )
+        # Provenance the plate already carries. GJ-11 is Junagadh, and at a
+        # Junagadh checkpoint the difference between a local registration and
+        # one from Kutch is operational information the officer would otherwise
+        # have to look up. ``rto_known`` is False for a code Gujarat has never
+        # issued (GJ-28, GJ-29), which is a read to distrust rather than a rare
+        # vehicle.
+        r["plate_district"] = rto.district(r["plate_text"])
+        r["plate_origin"] = rto.describe(r["plate_text"])
+        r["rto_known"] = rto.is_known_rto(r["plate_text"])
     return rows
 
 

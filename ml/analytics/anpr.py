@@ -40,6 +40,7 @@ import math
 import re
 from collections import Counter, defaultdict
 
+from ml import rto
 from ml.plate_validator import format_typicality, matches_format, validate_plate
 
 # ── Glyph confusion classes ──────────────────────────────────────────────────
@@ -271,22 +272,39 @@ def consensus_plate(
         surfaced in the UI, because an operator acting on a plate needs to see
         whether it rested on nine agreeing reads or on one lucky guess.
     """
+    # Reads the OCR itself declined to make are dropped before the ballot, not
+    # scored down in it. The India-specific model emits the literal word
+    # UNREADABLE on crops it cannot resolve; letting that vote meant a track
+    # with four illegible frames and one good one could out-vote the good one
+    # with a word.
     cleaned: list[tuple[str, float]] = []
+    abstained = 0
     for text, conf in reads:
         t = _clean(text)
-        if len(t) >= _MIN_READ_LEN:
-            cleaned.append((t, float(conf) if conf is not None else 0.5))
+        if len(t) < _MIN_READ_LEN:
+            continue
+        if rto.is_abstention(t):
+            abstained += 1
+            continue
+        cleaned.append((t, float(conf) if conf is not None else 0.5))
 
     if not cleaned:
-        return None, 0.0, 0, {}
+        return None, 0.0, 0, {"reads": 0, "abstained": abstained,
+                              "method": "no_usable_read"}
 
     if len(cleaned) == 1:
         only = cleaned[0]
-        snapped = validate_plate(only[0]) or only[0]
+        snapped = validate_plate(only[0])
+        votes = {"reads": 1, "abstained": abstained, "method": "single_read",
+                 "raw": [only[0]]}
+        if snapped is None:
+            # One read that is not a registration is nothing at all. It used to
+            # be returned raw, which is how this estate acquired vehicles
+            # plated KH2222 and UNRD71.
+            votes["rejected_raw"] = only[0]
+            return None, 0.0, 1, votes
         # A single read is a lead, never a conclusion — cap what it can claim.
-        return snapped, round(min(only[1], 0.28), 4), 1, {
-            "reads": 1, "method": "single_read", "raw": [only[0]],
-        }
+        return snapped, round(min(only[1], 0.28), 4), 1, votes
 
     # ── Pick the alignment frame: confidence-weighted modal length ───────────
     len_weight: Counter = Counter()
@@ -356,6 +374,7 @@ def consensus_plate(
 
     votes = {
         "reads": n,
+        "abstained": abstained,
         "method": "multiframe_vote",
         "frame_len": frame_len,
         "raw_consensus": raw_consensus,
@@ -366,7 +385,18 @@ def consensus_plate(
         "evidence": round(evidence, 4),
         "positions": audit,
         "raw": [t for t, _ in cleaned][:20],
+        "rto_known": rto.is_known_rto(plate) if format_valid else None,
     }
+
+    # The vote produced a string; the grammar says it is not a registration.
+    # Returning it anyway is what put UNREADBLE, TA0AAKS10 and M062026 in front
+    # of operators as vehicle identities. The ballot is kept in the audit trail
+    # so the track still shows what was seen — but the *plate* column, which is
+    # what an officer acts on, stays empty, because empty is the truth.
+    if not format_valid:
+        votes["rejected_raw"] = plate
+        return None, 0.0, n, votes
+
     return plate, round(min(confidence, 0.99), 4), n, votes
 
 

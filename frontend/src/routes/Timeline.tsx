@@ -197,7 +197,8 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
         {e.pts_ms != null && <><dt>Video offset</dt><dd>{dur(e.pts_ms / 1000)}</dd></>}
         {e.confidence != null && <><dt>Confidence</dt><dd>{pct(e.confidence, 1)}</dd></>}
         {e.zone_name && <><dt>Zone</dt><dd>{e.zone_name}</dd></>}
-        {e.plate_text && <><dt>Plate</dt><dd><Plate text={e.plate_text} trust={e.plate_trust} /></dd></>}
+        {e.plate_text && <><dt>Plate</dt><dd><Plate text={e.plate_text} trust={e.plate_trust} origin={e.plate_origin}
+                                       rtoKnown={e.rto_known} showOrigin /></dd></>}
         {e.reviewed_by && <><dt>Reviewed</dt><dd>{e.reviewed_by} · {stamp(e.reviewed_at)}</dd></>}
       </dl>
 
@@ -233,7 +234,9 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
                   footage is 17.6%, and the vote across a track is what makes a plate
                   usable at all. The read count is shown because it is the evidence. */}
               <dt>Plate</dt>
-              <dd>{track.plate_text ? <Plate text={track.plate_text} trust={track.plate_trust} /> : "—"}</dd>
+              <dd>{track.plate_text ? <Plate text={track.plate_text} trust={track.plate_trust}
+                                          origin={track.plate_origin} rtoKnown={track.rto_known}
+                                          showOrigin /> : "—"}</dd>
               {track.heading_deg != null && <><dt>Heading</dt><dd>{Math.round(track.heading_deg)}°</dd></>}
             </dl>
           </div>
