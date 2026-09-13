@@ -90,6 +90,19 @@ export async function request<T>(
       /* keep the text; a proxy error page is not JSON and saying so is the point */
     }
   }
+  // A 401 while holding a token means the token is no longer good — Model 1
+  // issues them with a fifteen-minute life and nothing here renews them. Left
+  // alone this is the worst kind of failure: every panel quietly empties, the
+  // live dot goes to "offline", and the operator is looking at a console that
+  // shows nothing and explains nothing. So the token is dropped and the shell is
+  // told, which puts the sign-in screen back where an operator can act on it.
+  //
+  // Guarded on `bearer` so an unauthenticated 401 — the documented state before
+  // anyone has signed in — does not fire the event and loop.
+  if (res.status === 401 && bearer) {
+    setToken(null);
+    window.dispatchEvent(new CustomEvent("setu:unauthorized"));
+  }
   if (!res.ok) throw new ApiError(res.status, humanise(res.status, body), body);
   return body as T;
 }

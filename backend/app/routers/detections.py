@@ -15,16 +15,26 @@ difference between a frame and a vehicle:
   consensus plate, the class vote, the colour vote and the path.
 
 Multi-frame ANPR (12) lives on the track: ``plate_text`` there is the consensus over
-``plate_read_count`` reads, and ``plate_votes`` keeps the ballot. ``scripts/score_anpr.py``
-measured 17.6% exact accuracy for a single read against 85.2% for the consensus, so
+``plate_read_count`` reads, and ``plate_votes`` keeps the ballot. So
 ``/tracks/{id}/reads`` returns the whole trail — an operator acting on a plate is
 entitled to see how the machine got there.
+
+It also returns a **trust tier**, because a confidence number on its own does not
+tell an operator what to do. Measured against plates read by a human
+(``scripts/export_plate_labels.py``, nine legible crops): reads above 0.5 were
+exact 2/2, reads below 0.3 were exact 0/3, and overall exact match was 33%. The
+accuracy is modest; the calibration is the useful part, and ``ml/plate_trust.py``
+turns it into act-on / verify / lead-only so every surface says the same thing.
+
+An earlier version of this docstring quoted 17.6% single-read against 85.2%
+consensus. Those came from ``scripts/score_anpr.py`` run over *synthetic* tracks,
+where the seeder knew the answer — they measured the voting algorithm against a
+simulated error model, not ANPR against a road.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -32,19 +42,25 @@ from backend.app import db, storage
 from backend.app.common import as_uuid, paginate, window
 from backend.app.security import Operator, current_operator
 
+# The analytics layer owns the plate vocabulary — what a legal plate is, when one
+# looks truncated, and what a confidence band means. The API reads those rules
+# rather than restating them, so a retune lands in one place.
+from ml import plate_trust
+from ml.plate_validator import is_probably_truncated
+
 router = APIRouter(tags=["detections"])
 
 
 @router.get("/detections")
 async def list_detections(
-    camera: Optional[list[str]] = Query(default=None),
-    detection_class: Optional[list[str]] = Query(default=None, alias="class"),
-    color: Optional[list[str]] = Query(default=None),
-    plate: Optional[str] = None,
-    has_plate: Optional[bool] = None,
-    track_uuid: Optional[str] = None,
+    camera: list[str] | None = Query(default=None),
+    detection_class: list[str] | None = Query(default=None, alias="class"),
+    color: list[str] | None = Query(default=None),
+    plate: str | None = None,
+    has_plate: bool | None = None,
+    track_uuid: str | None = None,
     min_confidence: float = Query(default=0.0, ge=0.0, le=1.0),
-    span: tuple[Optional[datetime], Optional[datetime]] = Depends(window),
+    span: tuple[datetime | None, datetime | None] = Depends(window),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0, le=50000),
     _: Operator = Depends(current_operator),
@@ -123,14 +139,14 @@ async def get_detection(detection_id: str, _: Operator = Depends(current_operato
 
 @router.get("/tracks")
 async def list_tracks(
-    camera: Optional[list[str]] = Query(default=None),
-    track_class: Optional[list[str]] = Query(default=None, alias="class"),
-    color: Optional[list[str]] = Query(default=None),
-    plate: Optional[str] = None,
-    has_plate: Optional[bool] = None,
+    camera: list[str] | None = Query(default=None),
+    track_class: list[str] | None = Query(default=None, alias="class"),
+    color: list[str] | None = Query(default=None),
+    plate: str | None = None,
+    has_plate: bool | None = None,
     min_reads: int = Query(default=0, ge=0, le=100),
     min_duration_s: float = Query(default=0.0, ge=0.0),
-    span: tuple[Optional[datetime], Optional[datetime]] = Depends(window),
+    span: tuple[datetime | None, datetime | None] = Depends(window),
     limit: int = Query(default=60, ge=1, le=300),
     offset: int = Query(default=0, ge=0, le=50000),
     _: Operator = Depends(current_operator),
@@ -230,6 +246,14 @@ async def plate_reads(track_id: str, _: Operator = Depends(current_operator)) ->
             "confidence": track["plate_confidence"],
             "read_count": track["plate_read_count"],
             "votes": track["plate_votes"],
+            # What to do about it, not just how sure we are. The bands come from
+            # a measurement against human-read plates rather than from taste, and
+            # they live in one module so every surface says the same thing.
+            "trust": plate_trust.describe(
+                track["plate_confidence"],
+                read_count=track["plate_read_count"],
+                truncated=is_probably_truncated(track["plate_text"] or ""),
+            ),
         },
         "reads": reads,
         "distinct_reads": sorted(

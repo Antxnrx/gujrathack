@@ -109,7 +109,15 @@ export default function CameraMap({ cameras, selected, onSelect, links, fit = tr
       if (c.lat == null || c.lng == null) continue;
       pts.push([c.lat, c.lng]);
       const on = selected === c.external_id;
-      const hot = c.open_event_count > 0;
+      // Both counts are optional in practice. This map is fed from two places:
+      // the camera index, whose rows carry the rollup, and the transition
+      // graph's nodes, which carry identity and position only. Reading the
+      // rollup unguarded threw on the graph's nodes and — with no error boundary
+      // above it — took the whole Investigate page down, so the plate panel next
+      // to it never rendered either.
+      const events = c.open_event_count ?? 0;
+      const detections = c.detection_count ?? 0;
+      const hot = events > 0;
       mod.circleMarker([c.lat, c.lng], {
         radius: on ? 9 : hot ? 7 : 5,
         color: on ? "#ffffff" : "#0b0f14",
@@ -119,8 +127,8 @@ export default function CameraMap({ cameras, selected, onSelect, links, fit = tr
         className: "cam-pin",
       })
         .bindTooltip(
-          `<b>${c.external_id}</b> ${c.name}<br>${c.district ?? ""} · ${c.detection_count.toLocaleString("en-IN")} detections` +
-            (hot ? `<br><b style="color:#f43f5e">${c.open_event_count} open</b>` : ""),
+          `<b>${c.external_id}</b> ${c.name}<br>${c.district ?? ""} · ${detections.toLocaleString("en-IN")} detections` +
+            (hot ? `<br><b style="color:#f43f5e">${events} open</b>` : ""),
           { direction: "top", opacity: 0.95 },
         )
         .on("click", () => onSelectRef.current?.(c.external_id))

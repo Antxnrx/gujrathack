@@ -413,3 +413,22 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
   font-size: 13px;
 }
 .login-foot { margin: 2px 0 0; text-align: center; opacity: 0.6; }
+
+/* ── Plate trust ──────────────────────────────────────────────────────────
+   The decision a confidence number implies, shown above the evidence for it.
+   Colour is semantic and deliberately not the accent: this is act / check /
+   do-not-act, which is a different axis from "this element is interactive". */
+.trust {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 11px;
+  border-radius: 6px;
+  border-left: 3px solid currentColor;
+  background: var(--panel-2, rgba(255, 255, 255, 0.03));
+}
+.trust b { font-size: 13px; letter-spacing: 0.01em; }
+.trust span { color: var(--fg); opacity: 0.75; }
+.trust-actionable { color: var(--ok, #46be92); }
+.trust-verify     { color: var(--warn, #dda451); }
+.trust-lead       { color: var(--dim, #8a99ad); }

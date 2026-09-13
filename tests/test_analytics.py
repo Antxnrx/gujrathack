@@ -483,3 +483,45 @@ def test_every_draft_has_a_dedupe_key():
     assert drafts, "the fixture should trigger several rules"
     assert all(d.dedupe_key for d in drafts)
     assert len({d.dedupe_key for d in drafts}) == len(drafts), "keys must be unique"
+
+
+# ── Plate trust tiers ────────────────────────────────────────────────────────
+# The bands come from a measurement (scripts/export_plate_labels.py) and these
+# pin the decisions that measurement implies, so that a later retune has to
+# change the test deliberately rather than drift past it.
+
+def test_trust_actionable_only_above_measured_threshold():
+    from ml.plate_trust import plate_trust
+    assert plate_trust(0.66, read_count=10).tier == "actionable"
+    assert plate_trust(0.50, read_count=10).tier == "actionable"
+    assert plate_trust(0.49, read_count=10).tier == "verify"
+
+
+def test_trust_lead_below_the_band_that_was_never_right():
+    from ml.plate_trust import plate_trust
+    assert plate_trust(0.29, read_count=8).tier == "lead"
+    assert plate_trust(0.0, read_count=8).tier == "lead"
+    assert plate_trust(None, read_count=8).tier == "lead"
+
+
+def test_single_read_is_never_actionable():
+    """One frame is a lead however confident the OCR claims to be."""
+    from ml.plate_trust import plate_trust
+    assert plate_trust(0.99, read_count=1).tier == "lead"
+
+
+def test_short_tail_cannot_be_actionable():
+    """A confidently truncated plate is the dangerous case: it looks right and
+    searches a registry for a registration that was never issued."""
+    from ml.plate_trust import plate_trust
+    assert plate_trust(0.80, read_count=10, truncated=True).tier == "verify"
+    assert plate_trust(0.80, read_count=10, truncated=False).tier == "actionable"
+
+
+def test_describe_is_json_serialisable_and_cites_its_measurement():
+    import json
+    from ml.plate_trust import describe
+    d = describe(0.66, read_count=10)
+    json.dumps(d)
+    assert d["tier"] == "actionable"
+    assert "2 of 2" in d["measured"]

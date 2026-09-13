@@ -113,6 +113,15 @@ export default function App() {
     return Boolean(localStorage.getItem("setu.token"));
   });
 
+  // The API drops the token on a 401 and announces it here. Without this the
+  // console stays on a shell whose every panel is empty, which looks like the
+  // system being broken rather than the session having ended.
+  useEffect(() => {
+    const onExpired = () => setSignedIn(false);
+    window.addEventListener("setu:unauthorized", onExpired);
+    return () => window.removeEventListener("setu:unauthorized", onExpired);
+  }, []);
+
   // `requires_auth` is reported by the API rather than guessed from a build
   // flag, so the console follows the deployment it is actually talking to. The
   // offline demo runs auth-optional and never shows this screen.

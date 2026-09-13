@@ -195,10 +195,19 @@ export default function Investigate() {
               {reads.data?.consensus?.votes?.positions && (
                 <div className="body" style={{ paddingTop: 0 }}>
                   <div className="tiny faint" style={{ marginBottom: 6 }}>
+                    {/* `distinct_reads` is the list of distinct strings and their
+                        counts, not a count. Rendering the array itself threw
+                        "Objects are not valid as a React child" and, with no
+                        error boundary here, took the whole page down — which
+                        only ever happened once a track had real reads to show. */}
                     Multi-frame plate consensus — agreement {pct(reads.data.agreement ?? 0, 0)} across{" "}
-                    {reads.data.distinct_reads} distinct readings
+                    {reads.data.distinct_reads?.length ?? 0} distinct readings
                   </div>
-                  <PlateVote votes={reads.data.consensus.votes} plate={reads.data.consensus.plate_text} />
+                  <PlateVote
+                    votes={reads.data.consensus.votes}
+                    plate={reads.data.consensus.plate_text}
+                    trust={reads.data.consensus.trust}
+                  />
                 </div>
               )}
             </section>

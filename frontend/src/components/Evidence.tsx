@@ -133,7 +133,9 @@ const SNAP_NOTE: Record<string, string> = {
  *     rather than a short plate. Acting on `GJ11AB457` when the vehicle is
  *     `GJ11AB4570` means searching a registry for something never issued.
  */
-export function PlateVote({ votes, plate }: { votes: any; plate?: string | null }) {
+export function PlateVote(
+  { votes, plate, trust }: { votes: any; plate?: string | null; trust?: any },
+) {
   const positions: any[] = votes?.positions ?? [];
   if (!positions.length) return null;
   const raw: string[] = votes?.raw ?? [];
@@ -147,6 +149,18 @@ export function PlateVote({ votes, plate }: { votes: any; plate?: string | null 
 
   return (
     <div className="col" style={{ gap: 8 }}>
+      {/* The decision, above the evidence for it. An operator scanning a queue
+          needs to know whether to act before they need to know why. */}
+      {trust && (
+        <div className={`trust trust-${trust.tier}`}>
+          <b>{trust.label}</b>
+          <span className="tiny">{trust.guidance}</span>
+          <span className="tiny faint">
+            measured: {trust.measured} · nine hand-read plates
+          </span>
+        </div>
+      )}
+
       <div className="platevote">
         {positions.map((p) => {
           const top = p.top ?? [];

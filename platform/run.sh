@@ -34,6 +34,19 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 port_up() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
+# Start a long-running service and let go of it.
+#
+# The redirects are the point: a child that inherits this script's stdout keeps
+# the pipe open, so whatever invoked run.sh waits for the servers rather than for
+# run.sh. exec replaces the subshell instead of leaving a shell parked around the
+# process, and disown drops it from the job table so no SIGHUP reaches it when
+# the script exits.
+start_bg() {
+  local dir=$1 log=$2; shift 2
+  ( cd "$dir" && exec "$@" </dev/null >"$log" 2>&1 ) &
+  disown 2>/dev/null || true
+}
+
 wait_for() {  # wait_for <url> <label> <tries>
   local url=$1 label=$2 tries=${3:-60}
   for _ in $(seq 1 "$tries"); do
@@ -87,13 +100,11 @@ head_ "Services"
 # The registry starts first: the control room verifies operator tokens against
 # its JWKS, and the console will not render a signed-in shell without it.
 if ! port_up 8000; then
-  ( cd "$M1" && nohup .venv/bin/python -m uvicorn app.main:app --port 8000 \
-      </dev/null >/tmp/setu-m1-api.log 2>&1 & disown ) 2>/dev/null ; fi
+  start_bg "$M1" /tmp/setu-m1-api.log .venv/bin/python -m uvicorn app.main:app --port 8000; fi
 wait_for http://localhost:8000/healthz "registry API :8000"
 
 if ! port_up 8001; then
-  ( cd "$M2" && nohup .venv/bin/python -m uvicorn backend.app.main:app --port 8001 \
-      </dev/null >/tmp/setu-m2-api.log 2>&1 & disown ) 2>/dev/null ; fi
+  start_bg "$M2" /tmp/setu-m2-api.log .venv/bin/python -m uvicorn backend.app.main:app --port 8001; fi
 wait_for http://localhost:8001/api/health "control-room API :8001"
 
 # npm run dev is avoided deliberately: a colon anywhere in the project path
@@ -101,13 +112,11 @@ wait_for http://localhost:8001/api/health "control-room API :8001"
 # found" is a confusing way to learn that. Invoking the binaries directly is
 # immune to it.
 if ! port_up 3000; then
-  ( cd "$M1/web" && nohup node node_modules/next/dist/bin/next dev \
-      </dev/null >/tmp/setu-m1-web.log 2>&1 & disown ) 2>/dev/null ; fi
+  start_bg "$M1/web" /tmp/setu-m1-web.log node node_modules/next/dist/bin/next dev; fi
 wait_for http://localhost:3000/ "registry portal :3000" 90
 
 if ! port_up 5173; then
-  ( cd "$M2/frontend" && nohup node node_modules/vite/bin/vite.js --port 5173 \
-      </dev/null >/tmp/setu-m2-web.log 2>&1 & disown ) 2>/dev/null ; fi
+  start_bg "$M2/frontend" /tmp/setu-m2-web.log node node_modules/vite/bin/vite.js --port 5173; fi
 wait_for http://localhost:5173/ "control-room console :5173" 90
 
 head_ "Open"
