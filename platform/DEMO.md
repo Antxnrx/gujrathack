@@ -206,7 +206,10 @@ Then the measurement that explains it:
 > answer a plate question and which cannot, instead of silently returning
 > nothing."
 
-**Close on Evidence.** Seal a snapshot, then verify it.
+**Close on Evidence.** Seal a snapshot, then verify it. (Case work starts empty
+by design — nothing in this database describes work nobody did. Act 5's Wanted
+vehicle playbook creates the incident and the pack live, in about a tenth of a
+second.)
 
 > "Two separate facts: the seal is intact, and the live data has drifted. An old
 > snapshot legitimately drifts. Collapsing those into one valid/invalid light is

@@ -194,8 +194,18 @@ three. Renaming the directory would remove the whole class of problem.
 
 Worth stating, because these are the usual suspects:
 
-- **No synthetic data.** The database was rebuilt from the GPU run's real output
-  and the shipped synthetic seed was deleted.
+- **No synthetic data, and no way to make any.** Every one of the 61,982
+  detections and 1,913 tracks is `source='live'`. The synthetic generator
+  (`scripts/seed_demo.py`), the scorer that only ever measured against its
+  invented ground truth (`scripts/score_anpr.py`), and the competing camera
+  seeder (`scripts/seed.py`) have all been deleted — the registry owns the
+  estate, and Sentinel's footage is the only thing that can put a detection in
+  this database.
+- **Case work starts empty.** Incidents, evidence and the watchlist hold nothing
+  until an operator does something, because a seeded incident describes work
+  nobody did. The playbooks build a complete case — watchlist, retrospective
+  scan, alerts, incident, sealed and verified pack — in about a tenth of a
+  second, so an empty case file costs a demo nothing and buys it honesty.
 - **No video is stored.** The relay passes bytes through; evidence snapshots seal
   references and field values, never copies of imagery.
 - **The relay accepts no client URL.** Segment addresses are minted server-side
