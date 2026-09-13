@@ -32,7 +32,23 @@ const REASON: Record<string, string> = {
   timeout: "The gateway did not answer inside the playlist budget.",
 };
 
-export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[] }) {
+export function Player(
+  { cameraRef, zones, active = true, compact = false }:
+  {
+    cameraRef: string;
+    zones?: Zone[];
+    /** False tears the decoder down and never creates one.
+     *
+     *  The wall needs this and nothing else does. Nine simultaneous 1080p HLS
+     *  decoders is not a thing a laptop does, and nine independent retry loops
+     *  against the police gateway is the failure this player was flooding it
+     *  with earlier today, multiplied by nine. A tile that is not decoding
+     *  holds no hls.js instance at all — not a paused one. */
+    active?: boolean;
+    /** Smaller chrome, for a tile rather than a stage. */
+    compact?: boolean;
+  },
+) {
   const video = useRef<HTMLVideoElement>(null);
   const [err, setErr] = useState<string | null>(null);
   const [live, setLive] = useState<boolean | null>(null);
@@ -50,7 +66,7 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
 
   useEffect(() => {
     const el = video.current;
-    if (!el || !playable) return;
+    if (!el || !playable || !active) return;
     setErr(null);
 
     let hls: import("hls.js").default | null = null;
@@ -58,6 +74,13 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
     // One renewal per player instance. If a freshly-minted token is also
     // refused, the session is genuinely over and retrying cannot help.
     let renewed = false;
+    // And one restart after a fatal network error. `startLoad()` restarts
+    // hls.js's whole retry cycle, so calling it on every fatal error is an
+    // unbounded loop wearing the costume of a recovery: four wall tiles against
+    // an archive with missing segments produced 87 requests for 10 segments,
+    // 38 of them 404, in nine seconds. A gateway that is answering 404 will
+    // answer 404 again.
+    let restarts = 0;
 
     (async () => {
       // hls.js first, native HLS only as the fallback.
@@ -158,8 +181,17 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
         // A fatal network error that is not an auth failure is the gateway
         // itself. One reload attempt, then say so — retrying against something
         // that is refusing us is just load.
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls?.startLoad();
-        else setErr(`${data.details}`);
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          if (restarts >= 1) {
+            hls?.stopLoad();
+            setErr(code === 404
+              ? "The gateway no longer has this part of the recording."
+              : "The camera gateway stopped responding.");
+            return;
+          }
+          restarts += 1;
+          hls?.startLoad();
+        } else setErr(`${data.details}`);
       });
       // The playlist knows whether it is live; nothing else does. Surfaced so
       // the UI can say "LIVE" only when it is true — a VMS must never let an
@@ -182,12 +214,12 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
       el.removeAttribute("src");
       el.load();
     };
-  }, [url, playable]);
+  }, [url, playable, active]);
 
   const reason = probe.data?.reason;
 
   return (
-    <div className="player">
+    <div className={`player${compact ? " compact" : ""}`}>
       <video ref={video} controls muted playsInline
              onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} />
       {zones?.length ? <ZoneOverlay zones={zones} /> : null}

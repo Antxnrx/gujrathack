@@ -16,6 +16,7 @@ import Login, { consumeTokenFromUrl } from "./routes/Login";
  */
 const Dashboard   = lazy(() => import("./routes/Dashboard"));
 const Playbooks   = lazy(() => import("./routes/Playbooks"));
+const Wall        = lazy(() => import("./routes/Wall"));
 const Timeline    = lazy(() => import("./routes/Timeline"));
 const Cameras     = lazy(() => import("./routes/Cameras"));
 const CameraView  = lazy(() => import("./routes/CameraView"));
@@ -60,6 +61,7 @@ function Nav() {
       {link("/timeline", "Timeline", open)}
       {link("/alerts", "Alerts", pending)}
       <div className="nav-group">Watch</div>
+      {link("/wall", "Camera wall")}
       {link("/cameras", "Cameras")}
       {link("/zones", "Zones & rules")}
       <div className="nav-group">Investigate</div>
@@ -194,6 +196,7 @@ export default function App() {
             <Route path="/timeline" element={<Timeline />} />
             <Route path="/timeline/:eventId" element={<Timeline />} />
             <Route path="/alerts" element={<Alerts />} />
+            <Route path="/wall" element={<Wall />} />
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/cameras/:ref" element={<CameraView />} />
             <Route path="/zones" element={<Zones />} />

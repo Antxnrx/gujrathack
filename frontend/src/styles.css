@@ -834,3 +834,71 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
   .cam-stage { height: auto; }
   .cam-screen .player { aspect-ratio: 16 / 9; }
 }
+
+/* ── Camera wall ──────────────────────────────────────────────────────────
+   The grid fills the shell and does not scroll: a wall you have to scroll is
+   not a wall. Tiles divide the space evenly and the video letterboxes inside
+   whatever shape that leaves. */
+.wall-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wall-bar {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--bg-1);
+}
+.wall-sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+.wall-keys b { color: var(--fg-dim); font-weight: 600; }
+
+.wall-grid {
+  flex: 1; min-height: 0; display: grid; gap: 8px; padding: 8px;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+}
+.wall-grid.g1 { --cols: 1; --rows: 1; }
+.wall-grid.g4 { --cols: 2; --rows: 2; }
+.wall-grid.g9 { --cols: 3; --rows: 3; }
+
+.wall-tile {
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0; min-height: 0;
+  border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+  background: var(--bg-1);
+}
+/* The focused tile is the one the keyboard acts on, so it has to be obvious
+   without being loud. */
+.wall-tile.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-dim); }
+.wall-tile > header,
+.wall-tile > footer {
+  display: flex; align-items: center; gap: 6px; padding: 5px 7px; font-size: 11px;
+}
+.wall-tile > header { border-bottom: 1px solid var(--line-soft); }
+.wall-tile > footer { border-top: 1px solid var(--line-soft); }
+.wall-tile > footer select { width: 100%; font-size: 10.5px; padding: 2px 4px; }
+.wall-tile > header .mono { color: var(--accent); }
+
+.wall-screen { min-height: 0; background: #000; display: flex; }
+.wall-screen .player { flex: 1; aspect-ratio: auto; min-height: 0; border-radius: 0; }
+.wall-screen .player video { width: 100%; height: 100%; object-fit: contain; }
+/* A tile is small; the stage's HUD pills would cover the picture. */
+.player.compact .hud { transform: scale(0.82); transform-origin: top left; }
+.player.compact .overlay { font-size: 11px; padding: 8px; }
+
+.wall-still {
+  flex: 1; min-height: 0; position: relative; padding: 0; border: 0;
+  background: #000; cursor: pointer; display: flex;
+}
+.wall-still .thumb { width: 100%; height: 100%; aspect-ratio: auto; object-fit: contain; }
+/* Labelled, always. A stored frame shown full-bleed in a wall tile is otherwise
+   indistinguishable from a live feed, and that is the one confusion this whole
+   console is built to avoid. */
+.wall-still-tag {
+  position: absolute; left: 6px; bottom: 6px;
+  padding: 1px 6px; border-radius: 3px;
+  background: rgb(0 0 0 / 0.65); border: 1px solid var(--line);
+  font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+@media (max-width: 760px) {
+  .wall-grid.g4, .wall-grid.g9 { --cols: 1; --rows: none; grid-template-rows: none; }
+  .wall-page { overflow-y: auto; }
+  .wall-tile { min-height: 240px; }
+}
