@@ -198,7 +198,7 @@ export default function Investigate() {
                     Multi-frame plate consensus — agreement {pct(reads.data.agreement ?? 0, 0)} across{" "}
                     {reads.data.distinct_reads} distinct readings
                   </div>
-                  <PlateVote votes={reads.data.consensus.votes} />
+                  <PlateVote votes={reads.data.consensus.votes} plate={reads.data.consensus.plate_text} />
                 </div>
               )}
             </section>

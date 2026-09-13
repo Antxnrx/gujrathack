@@ -99,18 +99,51 @@ export function ScoreHeader({ candidate }: { candidate: any }) {
   );
 }
 
+/** How the consensus reached its answer, in terms an operator can act on. */
+const SNAP_NOTE: Record<string, string> = {
+  argmax: "the vote's own answer — already a legal plate, nothing was changed",
+  beam_snap: "a character was traded for its runner-up to reach a legal plate",
+  validator_fuzzy: "characters were substituted that the vote did not support",
+  unsnapped: "not a legal plate in any form — treat this as a partial read",
+  single_read: "one frame only; capped at 0.28 confidence by design",
+};
+
 /**
  * Feature 12 — multi-frame ANPR, shown as the per-character vote it actually is.
  *
- * `scripts/score_anpr.py` measured 17.6% exact accuracy for a single read against 85.2%
- * for the consensus. This is the picture of why: each column is one plate position, and
- * the winning character is the one whose weighted votes across frames beat the others.
- * A column where the runner-up is close is a column the operator should not trust.
+ * A plate is the one field an operator acts on directly: put on a watchlist,
+ * radioed to a unit, typed into a registry. `GJ11BR2912 · 66%` is not enough to
+ * decide on — ten frames agreeing on every character and two frames agreeing on
+ * six both round to the same number and are not the same evidence.
+ *
+ * So the ballot is shown. Each column is one plate position and the winning
+ * character is the one whose weighted votes across frames beat the others; an
+ * amber column is one where the runner-up was nearly as well supported, which is
+ * exactly where the plate is most likely wrong and exactly what an operator
+ * needs in order to search both spellings.
+ *
+ * Two things are surfaced beyond the columns, because both change how far a read
+ * should be trusted and neither is visible in the string itself:
+ *
+ *   - **how much repair it took.** A plate that was legal as the vote cast it is
+ *     worth more than one that needed a character traded to become legal, and
+ *     the cost of that trade is recorded in nats.
+ *   - **whether the tail is short.** Indian registrations are issued with four
+ *     trailing digits, so a three-digit tail is usually a dropped character
+ *     rather than a short plate. Acting on `GJ11AB457` when the vehicle is
+ *     `GJ11AB4570` means searching a registry for something never issued.
  */
-export function PlateVote({ votes }: { votes: any }) {
+export function PlateVote({ votes, plate }: { votes: any; plate?: string | null }) {
   const positions: any[] = votes?.positions ?? [];
   if (!positions.length) return null;
   const raw: string[] = votes?.raw ?? [];
+  const snap: string | undefined = votes?.snap_method;
+  const cost: number = votes?.snap_cost ?? 0;
+
+  // Mirrors ml/plate_validator.is_probably_truncated. Kept as a display hint
+  // rather than a second source of truth — the API remains authoritative.
+  const tail = (plate ?? "").match(/(\d{1,4})$/)?.[1] ?? "";
+  const shortTail = Boolean(plate) && tail.length > 0 && tail.length < 4;
 
   return (
     <div className="col" style={{ gap: 8 }}>
@@ -133,10 +166,32 @@ export function PlateVote({ votes }: { votes: any }) {
           );
         })}
       </div>
+
       <div className="tiny faint">
         {votes.reads} reads voted per position ({votes.method}); amber columns are ones where
         the runner-up character was nearly as well supported.
       </div>
+
+      {snap && (
+        <div className="row wrap tiny" style={{ gap: 6 }}>
+          <span className={`pill ${votes.format_valid ? "" : "warn"}`}>
+            {snap.replace(/_/g, " ")}
+          </span>
+          <span className="faint">{SNAP_NOTE[snap] ?? ""}</span>
+          {cost > 0 && <span className="faint">· cost {cost.toFixed(2)} nats</span>}
+        </div>
+      )}
+
+      {shortTail && (
+        <div className="row wrap tiny" style={{ gap: 6 }}>
+          <span className="pill warn">partial</span>
+          <span className="faint">
+            {tail.length} trailing digit{tail.length === 1 ? "" : "s"} where a current
+            Indian registration carries four — a character was probably dropped.
+          </span>
+        </div>
+      )}
+
       {raw.length > 0 && (
         <div className="row wrap tiny" style={{ gap: 4 }}>
           <span className="faint">Individual reads:</span>
