@@ -25,7 +25,7 @@ import socket
 import tempfile
 import threading
 import time
-from typing import Generator, Optional
+from collections.abc import Generator
 
 import cv2
 import requests
@@ -40,6 +40,14 @@ log = logging.getLogger(__name__)
 _MOZILLA_UA = (
     "Mozilla/5.0 (compatible; SetuML/1.0; Gujarat Police Innovation Challenge)"
 )
+
+# The gateway throttles and announces it with 429. These govern how patiently a
+# segment fetch waits it out; the archive is not going anywhere, and finishing a
+# camera slowly beats recording it as unreachable.
+_RETRYABLE = {429, 500, 502, 503, 504}
+_RETRY_ATTEMPTS = 5
+_RETRY_BASE_S = 2.0
+_RETRY_MAX_S = 30.0
 
 
 # ─── RTSP reachability probe ──────────────────────────────────────────────────
@@ -63,7 +71,7 @@ class _HLSFetcher:
         self._session = requests.Session()
         self._session.cookies.set("sentinel", cookie)
         self._session.headers.update({"User-Agent": _MOZILLA_UA})
-        self._aes_key: Optional[bytes] = None
+        self._aes_key: bytes | None = None
         self._key_lock = threading.Lock()
 
     # ── manifest ──────────────────────────────────────────────────────────────
@@ -74,7 +82,7 @@ class _HLSFetcher:
         r = self._session.get(url, timeout=60)
         r.raise_for_status()
 
-        key_url: Optional[str] = None
+        key_url: str | None = None
         segments: list[str] = []
         base = f"{settings.sentinel_base_url}/{cam_id}"
 
@@ -113,10 +121,45 @@ class _HLSFetcher:
     # ── segment download + decrypt ────────────────────────────────────────────
 
     def fetch_segment(self, seg_url: str, key_url: str) -> bytes:
-        """Download a .ts segment, decrypt it, and return raw MPEG-TS bytes."""
-        resp = self._session.get(seg_url, timeout=90)
-        resp.raise_for_status()
-        encrypted = resp.content
+        """Download a .ts segment, decrypt it, and return raw MPEG-TS bytes.
+
+        Retries on 429 and 5xx with exponential backoff, because this gateway
+        throttles and says so. A batch run over cam20, cam23 and cam28 collected
+        nothing at all for those three: each hit ``429 Too Many Requests`` on its
+        first prefetch, the exception propagated as a dead segment, and the
+        camera finished its pass having sampled no frames. The failure looked
+        like an unreachable camera and was a rate limit.
+
+        ``Retry-After`` is honoured when sent — the server knows better than a
+        fixed curve how long it wants to be left alone.
+        """
+        delay = _RETRY_BASE_S
+        last: Exception | None = None
+
+        for attempt in range(1, _RETRY_ATTEMPTS + 1):
+            try:
+                resp = self._session.get(seg_url, timeout=90)
+                if resp.status_code in _RETRYABLE and attempt < _RETRY_ATTEMPTS:
+                    wait = float(resp.headers.get("Retry-After") or delay)
+                    log.info(
+                        "Segment %s answered %d; waiting %.1fs (attempt %d/%d)",
+                        seg_url.rsplit("/", 1)[-1], resp.status_code, wait,
+                        attempt, _RETRY_ATTEMPTS,
+                    )
+                    time.sleep(min(wait, _RETRY_MAX_S))
+                    delay = min(delay * 2, _RETRY_MAX_S)
+                    continue
+                resp.raise_for_status()
+                encrypted = resp.content
+                break
+            except requests.RequestException as exc:
+                last = exc
+                if attempt == _RETRY_ATTEMPTS:
+                    raise
+                time.sleep(min(delay, _RETRY_MAX_S))
+                delay = min(delay * 2, _RETRY_MAX_S)
+        else:  # pragma: no cover - the loop always breaks or raises
+            raise last or RuntimeError(f"Could not fetch {seg_url}")
 
         key = self.get_key(key_url)
         iv = bytes(16)  # IV is all-zeros in this gateway's playlist
@@ -140,10 +183,10 @@ class CameraStream:
     - HLS manual-decrypt loop otherwise
     """
 
-    def __init__(self, cam_id: str, cookie: str, loop: bool = True, frame_skip: Optional[int] = None) -> None:
+    def __init__(self, cam_id: str, cookie: str, loop: bool = True, frame_skip: int | None = None) -> None:
         self.cam_id = cam_id
         self.cookie = cookie
-        self.cap: Optional[cv2.VideoCapture] = None
+        self.cap: cv2.VideoCapture | None = None
         # HLS is primary — every segment starts with an IDR so grey smear is impossible.
         # RTSP kept as opt-in via FORCE_RTSP=true in .env for on-LAN / low-latency use.
         self.use_rtsp = getattr(settings, "force_rtsp", False) and is_rtsp_reachable(cam_id)
@@ -208,11 +251,11 @@ class CameraStream:
 
     def _frames_hls(
         self,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
         start_seg: int = 0,
-        end_seg: Optional[int] = None,
-        max_segments: Optional[int] = None,
+        end_seg: int | None = None,
+        max_segments: int | None = None,
     ) -> Generator:
         fetcher = _HLSFetcher(self.cookie)
         frame_idx = 0
@@ -262,7 +305,7 @@ class CameraStream:
                 # While we decode segment N, we prefetch segment N+1 in the
                 # background so there is no pause between segments for the viewer.
 
-                prefetch_data: list[Optional[bytes]] = [None]
+                prefetch_data: list[bytes | None] = [None]
                 prefetch_event = threading.Event()
 
                 def _prefetch(url: str) -> None:
@@ -343,9 +386,9 @@ class CameraStream:
 
     def frames(
         self,
-        start_time: Optional[str] = None,
-        end_time: Optional[str] = None,
-        max_segments: Optional[int] = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        max_segments: int | None = None,
     ) -> Generator:
         """Yield (frame_idx, pts_ms, frame_bgr) continuously.
 
@@ -369,7 +412,7 @@ class CameraStream:
                 max_segments=max_segments,
             )
 
-    def __enter__(self) -> "CameraStream":
+    def __enter__(self) -> CameraStream:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
