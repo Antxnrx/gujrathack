@@ -7,7 +7,9 @@ import {
 import { ago, dur, fullStamp, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
 import { CameraSelect, EventTypeSelect, StatusSelect, TagSelect, useDebounced } from "../components/Filters";
 import { VirtualList } from "../components/VirtualList";
-import { Empty, ErrorBox, Modal, Pager, Pill, Plate, SevDot, Skeleton, Status, Thumb } from "../components/ui";
+import {
+  Empty, ErrorBox, Modal, Pager, Pill, Plate, SceneDiagram, SevDot, Skeleton, Status, Thumb,
+} from "../components/ui";
 import { useReport } from "../components/Toasts";
 import type { EventRow } from "../lib/types";
 
@@ -88,10 +90,24 @@ export default function Timeline() {
           {items.length === 0 && !list.isLoading ? (
             <Empty>No events match these filters.</Empty>
           ) : (
-            <VirtualList items={items} estimate={58} style={{ height: "100%" }}
+            <VirtualList items={items} estimate={74} style={{ height: "100%" }}
               render={(e) => (
                 <button className={`item ${e.id === eventId ? "on" : ""}`} onClick={() => nav(`/timeline/${e.id}`)}>
                   <SevDot s={e.severity} />
+                  {/* The crop, in the row itself.
+                      Every one of these events carries a thumbnail and always
+                      did — the API returns a working presigned URL for all 43.
+                      The list simply never rendered them, so a violation queue
+                      was a wall of identical sentences ("Person in 11
+                      dolatpara-junagadh — live carriageway", eight times) with
+                      nothing to tell one from another. An operator triaging
+                      alerts is looking for the one that matters, and that
+                      judgement is made on the picture, not the label.
+                      Not zoomable here: the row is a button that opens the
+                      event, and a click that sometimes opens a lightbox instead
+                      would be worse than no lightbox. */}
+                  <Thumb src={e.thumbnail_url} alt={e.label} className="sm" zoomable={false}
+                         label={titleCase(e.event_type)} />
                   <span className="grow col" style={{ gap: 2 }}>
                     <span className="t trunc">{e.label}</span>
                     <span className="m">
@@ -205,7 +221,13 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
       {e.metrics && Object.keys(e.metrics).length > 0 && (
         <section className="card">
           <header><h4 className="grow">Why the detector fired</h4></header>
-          <div className="body">
+          <div className="body col" style={{ gap: 10 }}>
+            {/* The geometry first, then the numbers that describe it. For a zone
+                event the crop is 41x67 px on average — too small to show a
+                person — but the rule's claim is about *where* the subject went,
+                and that is drawable at any size. */}
+            <SceneDiagram polygon={q.data.zone?.polygon} path={track?.path}
+                          label={q.data.zone?.name} kind={e.event_type} />
             <dl className="kv">
               {Object.entries(e.metrics).map(([k, v]) => (
                 <div key={k} style={{ display: "contents" }}>

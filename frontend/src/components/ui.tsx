@@ -182,6 +182,55 @@ export function Appearance(
   );
 }
 
+/**
+ * What the rule actually saw, drawn — because the photograph cannot show it.
+ *
+ * A zone intrusion asserts a geometric fact: this subject was inside this
+ * polygon, for this long. The evidence stored for it is a crop of the subject,
+ * and on this estate those subjects average **41x67 px** and go down to 15 px
+ * wide, because a pedestrian in the carriageway is far from the lens. 33 of 43
+ * events have a subject under 60 px. No full frames were ever written — only
+ * crops — so there is no photograph of the scene to fall back on.
+ *
+ * The zone polygon and the track's path are both stored in normalised frame
+ * coordinates, so the *claim* can be drawn at any size even though the picture
+ * cannot be enlarged. That is the honest presentation: this is a diagram of what
+ * the detector measured, not a photograph of what happened, and it tells an
+ * operator the one thing the crop cannot — where the subject went relative to
+ * the carriageway.
+ */
+export function SceneDiagram(
+  { polygon, path, label, kind }:
+  { polygon?: number[][] | null;
+    path?: { x: number; y: number; w?: number; h?: number }[] | null;
+    label?: string; kind?: string },
+) {
+  const poly = (polygon ?? []).filter((p) => Array.isArray(p) && p.length >= 2);
+  const pts = (path ?? []).filter((p) => typeof p?.x === "number" && typeof p?.y === "number");
+  if (poly.length < 3 && pts.length < 2) return null;
+
+  const d = poly.map(([x, y]) => `${x * 100},${y * 100}`).join(" ");
+  const line = pts.map((p) => `${p.x * 100},${p.y * 100}`).join(" ");
+  const last = pts[pts.length - 1];
+  return (
+    <figure className="scene">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img"
+           aria-label={`${label ?? "scene"} — subject path against the zone`}>
+        {poly.length >= 3 && <polygon points={d} className="scene-zone" />}
+        {pts.length >= 2 && <polyline points={line} className="scene-path" />}
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x * 100} cy={p.y * 100} r="0.7" className="scene-pt" />
+        ))}
+        {last && <circle cx={last.x * 100} cy={last.y * 100} r="1.8" className="scene-now" />}
+      </svg>
+      <figcaption>
+        <span className="scene-key"><i className="k-zone" /> {label ?? kind ?? "zone"}</span>
+        <span className="scene-key"><i className="k-path" /> subject path · {pts.length} points</span>
+      </figcaption>
+    </figure>
+  );
+}
+
 export function Bar({ value, max, color }: { value: number; max: number; color?: string }) {
   const w = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return <div className="bar"><i style={{ width: `${w}%`, background: color }} /></div>;

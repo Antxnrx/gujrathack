@@ -210,6 +210,26 @@ async def get_event(event_id: str, _: Operator = Depends(current_operator)) -> d
             event["track_uuid"],
         )
 
+    # The geometry the rule was evaluated against.
+    #
+    # For a zone event the crop is nearly useless on its own: these subjects are
+    # 41x67 px on average and 15 px at the smallest, because a pedestrian in the
+    # carriageway is far from the lens. 33 of this estate's 43 events have a
+    # subject under 60 px wide, and no full frames were ever stored — only the
+    # subject crops.
+    #
+    # But a zone intrusion is a claim *about geometry*: this subject was inside
+    # this polygon, for this long. The polygon and the track's path are both held
+    # in normalised frame coordinates, so the claim can be drawn even though the
+    # photograph cannot. A diagram of where the subject walked relative to the
+    # carriageway is what the event actually asserts, and it is legible at any
+    # size.
+    zone = None
+    if event.get("zone_id"):
+        zone = await db.fetchrow(
+            "SELECT id, name, kind, polygon, direction_deg, tolerance_deg, classes "
+            "FROM zones WHERE id = $1", event["zone_id"])
+
     nearby = await db.fetch(
         """
         SELECT id, event_type, severity, label, started_at, thumbnail_key
@@ -247,7 +267,7 @@ async def get_event(event_id: str, _: Operator = Depends(current_operator)) -> d
     await storage.attach_thumbnails(nearby)
     if track:
         await storage.attach_thumbnails([track])
-    return {"event": event, "track": track, "tags": tags, "notes": notes,
+    return {"event": event, "track": track, "zone": zone, "tags": tags, "notes": notes,
             "incidents": incidents, "nearby_events": nearby}
 
 

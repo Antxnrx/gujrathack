@@ -253,6 +253,10 @@ hr.sep { border: 0; border-top: 1px solid var(--line-soft); margin: 10px 0; }
 /* A row thumbnail inside a dense list: fixed width so the text column does not
    reflow as crops load, and shrink-proof so a long label cannot squeeze it away. */
 .thumb.sm { width: 84px; flex: 0 0 84px; }
+/* In a dense violation queue the crop is the thing being scanned, so it gets a
+   fixed slot that cannot be squeezed by a long label, and a taller box than
+   16:9 because these crops are portrait. */
+.item .thumb.sm { width: 72px; flex: 0 0 72px; aspect-ratio: 4 / 3; }
 
 /* Zone geometry. Both of these render normalised 0-1 coordinates directly with
    `preserveAspectRatio="none"`, so no pixel arithmetic is involved and a stored
@@ -544,3 +548,26 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
                       text-underline-offset: 3px; cursor: help; }
 .appearance .q { font-style: normal; font-size: 9px; vertical-align: super;
                  color: var(--warn); margin-left: 1px; }
+
+
+/* ── Scene diagram ────────────────────────────────────────────────────────
+   Drawn, not photographed, and it should read as a drawing: the crop beside it
+   is the photograph. Normalised 0-100 coordinates with preserveAspectRatio
+   "none", so the stored geometry survives the feed changing resolution. */
+.scene { margin: 0; display: flex; flex-direction: column; gap: 5px; }
+.scene svg {
+  width: 100%; aspect-ratio: 16 / 9; display: block;
+  background: #0a0d12; border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.scene-zone { fill: rgba(251, 191, 36, 0.14); stroke: var(--warn); stroke-width: 0.5;
+              vector-effect: non-scaling-stroke; }
+.scene-path { fill: none; stroke: var(--accent); stroke-width: 1.4;
+              vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.scene-pt   { fill: var(--accent); opacity: 0.55; }
+.scene-now  { fill: var(--danger); }
+.scene figcaption { display: flex; gap: 12px; flex-wrap: wrap;
+                    font-size: 10.5px; color: var(--fg-faint); }
+.scene-key { display: inline-flex; align-items: center; gap: 4px; }
+.scene-key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.scene-key .k-zone { background: rgba(251,191,36,0.35); border: 1px solid var(--warn); }
+.scene-key .k-path { background: var(--accent); }
