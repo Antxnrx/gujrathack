@@ -133,6 +133,10 @@ async def districts(_: Operator = Depends(current_operator)) -> dict:
 @router.get("/{ref}")
 async def get_camera(ref: str, _: Operator = Depends(current_operator)) -> dict:
     cam = await resolve_camera(ref)
+    # The list endpoint derives this and the detail did not, so a camera page
+    # reported "no relay" next to a player that was streaming from it. Derived
+    # here rather than in the UI: one definition, both endpoints.
+    cam = {**cam, "has_stream": cam.get("ingest_url") is not None}
     rollup = await db.fetchrow("SELECT * FROM camera_index WHERE id = $1", cam["id"])
     zones = await db.fetch(
         "SELECT id, name, kind, polygon, direction_deg, tolerance_deg, classes, active "

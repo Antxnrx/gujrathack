@@ -619,10 +619,16 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
   color: var(--fg); font-size: 11.5px; font-weight: 400; line-height: 1.5;
   text-align: left; letter-spacing: 0; text-transform: none;
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.5);
-  opacity: 0; visibility: hidden; transition: opacity 120ms var(--ease, ease);
   z-index: 40; pointer-events: none;
+  /* `display: none`, not `visibility: hidden`.
+     An absolutely-positioned box that is merely invisible still contributes to
+     the scrollWidth of its scrolling ancestor, so a row of these near the right
+     edge gave the camera page a horizontal scrollbar over 120 px of nothing.
+     The fade is not worth a scrollbar, and an instant tooltip is arguably
+     better in a control room anyway. */
+  display: none;
 }
-.help:hover .help-bubble, .help:focus-visible .help-bubble { opacity: 1; visibility: visible; }
+.help:hover .help-bubble, .help:focus-visible .help-bubble { display: block; }
 /* Near the right edge the bubble would overflow the viewport; anchor it right. */
 .help.right .help-bubble { left: auto; right: 0; transform: none; }
 
@@ -749,3 +755,82 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 .feed-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
 .feed-dot.on { background: var(--ok); box-shadow: 0 0 0 2px rgb(52 211 153 / 0.18); }
 .feed-dot.off { background: var(--fg-faint); }
+
+/* ── Camera view ──────────────────────────────────────────────────────────
+   Picture first and large. The stage is sized to the viewport so opening a
+   camera puts an operator in front of the image, not in front of a form about
+   it; the indexed detail scrolls under it. One scroll container, so there is
+   one scrollbar and the stage can be left behind deliberately rather than
+   fighting a nested pane. */
+.cam-page { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+.cam-stage {
+  display: grid;
+  /* An explicit minmax(0, 1fr) column. Without it the single implicit column is
+     `auto`, which sizes to content — the plate rail's flex children pushed the
+     stage to 3,804px inside a 1,255px pane and every row overflowed with it. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* The topbar is ~41px; this leaves the stage just short of a full screen so a
+     sliver of the detail below shows, which is how a reader learns there is
+     more without being told. */
+  height: calc(100vh - 64px);
+  min-height: 460px;
+}
+
+.cam-bar {
+  position: sticky; top: 0; z-index: 6;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; background: var(--bg-1); border-bottom: 1px solid var(--line);
+}
+.cam-bar .cam-id { color: var(--accent); font-size: 12.5px; }
+.cam-bar b { font-size: 13.5px; }
+
+.cam-screen { min-height: 0; padding: 10px 12px 0; display: flex; }
+.cam-screen .player { flex: 1; aspect-ratio: auto; min-height: 0; }
+.cam-screen .player video { width: 100%; height: 100%; object-fit: contain; }
+
+/* Horizontal, dense, and wrapping rather than scrolling: a fact that has moved
+   off the edge is a fact nobody reads. */
+.cam-live {
+  display: flex; align-items: stretch; flex-wrap: wrap; gap: 2px 0;
+  padding: 8px 12px; border-top: 1px solid var(--line-soft);
+}
+.cam-fact { display: flex; flex-direction: column; gap: 1px; padding: 2px 14px 2px 0; }
+.cam-fact b { font: 600 13px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.cam-fact span {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 9.5px; color: var(--fg-faint);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.cam-fact.ok b  { color: var(--ok); }
+.cam-fact.hot b { color: var(--danger); }
+.cam-fact.dim b { color: var(--fg-faint); }
+.cam-live-sep { width: 1px; align-self: stretch; margin: 0 12px 0 2px; background: var(--line); }
+
+.cam-plates { border-top: 1px solid var(--line-soft); padding: 8px 12px 10px; }
+.cam-plates-head { display: flex; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 7px; }
+/* A rail, not a grid: these are scanned left to right and the newest is the one
+   that matters, so it sits where the eye lands first. */
+.cam-plates-rail {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.plate-card {
+  flex: 0 0 124px; display: flex; flex-direction: column; gap: 3px;
+  padding: 6px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-1); color: inherit;
+}
+.plate-card:hover { border-color: var(--accent-dim); text-decoration: none; }
+.plate-card .thumb { aspect-ratio: 16 / 10; }
+.plate-card .plate { font-size: 11.5px; }
+
+.cam-detail {
+  display: grid; gap: 12px; padding: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+@media (max-width: 820px) {
+  .cam-stage { height: auto; }
+  .cam-screen .player { aspect-ratio: 16 / 9; }
+}

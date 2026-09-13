@@ -73,6 +73,10 @@ export function loadToken(): void {
  */
 let renewing: Promise<boolean> | null = null;
 
+export function renewToken(): Promise<boolean> {
+  return renew();
+}
+
 function renew(): Promise<boolean> {
   if (renewing) return renewing;
   const base = registry ?? "";

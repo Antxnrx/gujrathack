@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, getToken } from "../lib/api";
+import { api, getToken, renewToken } from "../lib/api";
 import type { Zone } from "../lib/types";
 
 /**
@@ -55,6 +55,9 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
 
     let hls: import("hls.js").default | null = null;
     let dead = false;
+    // One renewal per player instance. If a freshly-minted token is also
+    // refused, the session is genuinely over and retrying cannot help.
+    let renewed = false;
 
     (async () => {
       // hls.js first, native HLS only as the fallback.
@@ -109,6 +112,19 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
         backBufferLength: 30,
         lowLatencyMode: false,
         enableWorker: true,
+        // Bound the retries. hls.js will otherwise re-request a failing segment
+        // indefinitely: an expired token produced 195 requests for four
+        // segments — 49 attempts each — against the police gateway, from one
+        // open tab. A player left open is not allowed to become a load
+        // generator.
+        fragLoadPolicy: {
+          default: {
+            maxTimeToFirstByteMs: 10_000,
+            maxLoadTimeMs: 60_000,
+            timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+            errorRetry: { maxNumRetry: 3, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+          },
+        },
         // Every request hls.js makes — playlist, segments and the AES key —
         // goes through here, so one hook authenticates all three. Without it
         // the relay answered 401 and the player showed an empty black box with
@@ -120,10 +136,28 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
         },
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
+        // 401 first, and on non-fatal errors too.
+        //
+        // The operator's access token lives fifteen minutes. hls.js requests do
+        // not go through the API client, so nothing was triggering the silent
+        // renewal that every other request gets — `xhrSetup` kept attaching the
+        // same dead token and hls.js kept retrying. Renewing here, once, and
+        // then resuming is what makes a player survive its own session.
+        const code = (data as { response?: { code?: number } }).response?.code;
+        if (code === 401 || code === 403) {
+          if (renewed) { setErr("Your session ended. Sign in again to keep watching."); hls?.stopLoad(); return; }
+          renewed = true;
+          renewToken().then((ok) => {
+            if (dead) return;
+            if (ok) hls?.startLoad();
+            else { setErr("Your session ended. Sign in again to keep watching."); hls?.stopLoad(); }
+          });
+          return;
+        }
         if (!data.fatal) return;
-        // A fatal network error on a relayed live playlist is usually the upstream
-        // session expiring. One reload attempt, then say so — an automatic retry loop
-        // against a gateway that is refusing us is just load.
+        // A fatal network error that is not an auth failure is the gateway
+        // itself. One reload attempt, then say so — retrying against something
+        // that is refusing us is just load.
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls?.startLoad();
         else setErr(`${data.details}`);
       });

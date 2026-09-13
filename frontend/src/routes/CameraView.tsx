@@ -1,244 +1,301 @@
-import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useCamera, useCameraTimeline, useTracks } from "../lib/queries";
-import { ago, dur, fullStamp, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
-import { Appearance, Bar, Empty, ErrorBox, Pill, SevDot, Skeleton, Status, Thumb } from "../components/ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCamera, useCameraTimeline, useCameras, useTracks } from "../lib/queries";
+import { ago, dur, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
+import {
+  Appearance, Bar, Empty, ErrorBox, Help, Pill, Plate, SevDot, Skeleton, Status, Thumb,
+} from "../components/ui";
 import { Player } from "../components/Player";
 
 /**
- * One camera: the live viewer, what has been indexed from it, and where a vehicle
- * leaving it can go next.
+ * One camera, laid out the way a VMS is: the picture first and large, then the
+ * facts about it, then the plates it has read — all in the first screen, with
+ * the indexed detail below.
  *
- * The indexing histogram is the honest answer to "is this camera covered". A camera can
- * be `active`, have a working relay and still have contributed nothing to the index,
- * because indexing is a batch pass over recorded footage and the two are independent.
- * Showing detections-per-bucket next to the player keeps those separate in the
- * operator's head instead of implying that a playing feed is a searched feed.
+ * The stage (bar · player · live strip · plate strip) is sized to the viewport,
+ * so opening a camera puts you in front of the image rather than in front of a
+ * form about the image. Everything an operator glances at while watching is on
+ * that screen; everything they'd sit down to read scrolls under it.
+ *
+ * The camera bar is sticky. Scrolling into the detail must never leave you
+ * unsure which camera you are reading about, and switching camera has to be
+ * reachable from anywhere on the page.
+ *
+ * Keyboard, because a control room is not driven by a mouse:
+ *   ← →  previous / next camera        f  fullscreen
+ *   space  play / pause                esc  back to the index
+ * Handlers are skipped while a field has focus, so typing in a search box does
+ * not change camera.
  */
 export default function CameraView() {
   const { ref = "" } = useParams();
+  const nav = useNavigate();
   const q = useCamera(ref);
+  const all = useCameras();
   const [bucket, setBucket] = useState(15);
   const [hours, setHours] = useState(6);
   const tl = useCameraTimeline(ref, { bucket_minutes: bucket, hours });
+  const tracks = useTracks({ camera: ref, limit: 24, has_plate: true });
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const cam = q.data?.camera;
   const act = q.data?.activity;
-  const zones = q.data?.zones ?? [];
+  const zones = useMemo(() => q.data?.zones ?? [], [q.data]);
   const neighbours = q.data?.neighbours ?? [];
   const recent = q.data?.recent_events ?? [];
 
-  const tracks = useTracks({ camera: ref, limit: 12, has_plate: true });
-
-  const peak = useMemo(
-    () => Math.max(1, ...(tl.data?.buckets ?? []).map((b: any) => b.detections ?? 0)),
-    [tl.data],
+  // Ordered estate, so ← → step through it in the order the index shows.
+  const order = useMemo(
+    () => [...(all.data?.items ?? [])].sort((a, b) => a.external_id.localeCompare(b.external_id)),
+    [all.data],
   );
+  const at = order.findIndex((c) => c.external_id === ref);
+  const step = useCallback((by: number) => {
+    if (order.length === 0) return;
+    const i = at < 0 ? 0 : (at + by + order.length) % order.length;
+    nav(`/cameras/${order[i].external_id}`);
+  }, [order, at, nav]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Never steal a key from a field, a select or anything the operator is
+      // editing — a search box that changes camera on every arrow press is
+      // worse than no shortcuts at all.
+      const t = e.target as HTMLElement | null;
+      if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+      else if (e.key === "Escape") { nav("/cameras"); }
+      else if (e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        const el = stageRef.current?.querySelector("video");
+        if (document.fullscreenElement) document.exitFullscreen();
+        else el?.requestFullscreen?.().catch(() => {});
+      } else if (e.key === " ") {
+        const v = stageRef.current?.querySelector("video");
+        if (v) { e.preventDefault(); v.paused ? v.play().catch(() => {}) : v.pause(); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step, nav]);
 
   if (q.isError) return <div className="view"><ErrorBox error={q.error} what={`Camera ${ref}`} /></div>;
   if (q.isLoading || !cam) return <div className="view"><Skeleton rows={10} /></div>;
 
+  const stream = (cam.metadata?.streams as any[] | undefined)?.[0];
+  const anpr = cam.metadata?.anpr as
+    | { tier?: string; read_rate?: number; median_vehicle_width_px?: number } | undefined;
+  const plated = tracks.data?.items ?? [];
+
   return (
-    // Two panes, each owning its own scroll. The player and the camera's
-    // identity stay on screen while the indexed detail is read down the right —
-    // previously the whole page was one scroll container, so looking at the
-    // twentieth plate read meant the feed you were checking it against had gone
-    // off the top.
-    <div className="workspace wide-side">
-      <aside className="ws-side">
-        <div className="col" style={{ gap: 4 }}>
-          <div className="row" style={{ gap: 8 }}>
-            <b style={{ fontSize: 15 }} className="trunc">{cam.name}</b>
-            <Status s={cam.status} />
-          </div>
-          <div className="row tiny" style={{ gap: 6 }}>
-            <span className="mono dim">{cam.external_id}</span>
-            <i className={`feed-dot ${cam.has_stream ? "on" : "off"}`} />
-            <span className="faint">{cam.has_stream ? "live feed" : "no feed"}</span>
-          </div>
-          <div className="tiny faint">
+    <div className="cam-page">
+      {/* ── The stage: one screen, picture first ────────────────────────── */}
+      <div className="cam-stage" ref={stageRef}>
+        <header className="cam-bar">
+          <button className="ghost sm" onClick={() => step(-1)} title="Previous camera (←)"
+                  aria-label="Previous camera">◀</button>
+          <span className="mono cam-id">{cam.external_id}</span>
+          <b className="trunc">{cam.name}</b>
+          <span className="tiny faint trunc">
             {[cam.area, cam.district].filter(Boolean).join(", ") || "location unknown"}
-            {cam.lat != null && ` · ${cam.lat.toFixed(4)}, ${cam.lng?.toFixed(4)}`}
-            {cam.geocode_precision && ` · ${cam.geocode_precision}-level geocode`}
+          </span>
+          <Status s={cam.status} />
+          <span className="grow" />
+          <span className="tiny faint">{at >= 0 ? `${at + 1} / ${order.length}` : ""}</span>
+          <button className="ghost sm" onClick={() => step(1)} title="Next camera (→)"
+                  aria-label="Next camera">▶</button>
+          <Help>
+            <b>←</b> / <b>→</b> previous or next camera · <b>F</b> fullscreen ·
+            {" "}<b>Space</b> play or pause · <b>Esc</b> back to the index.
+          </Help>
+        </header>
+
+        <div className="cam-screen">
+          <Player cameraRef={ref} zones={zones} />
+        </div>
+
+        {/* Live facts, horizontal, under the picture. Everything here is about
+            the feed and the camera as it stands — not about the archive. */}
+        <div className="cam-live" role="group" aria-label="Camera status">
+          <Fact v={stream?.resolution ?? "—"} l="resolution" />
+          <Fact v={(stream?.codec ?? "—").toUpperCase()} l="codec" />
+          <Fact v={(stream?.protocol ?? "—").toUpperCase()} l="protocol" />
+          <Fact v={cam.has_stream ? "yes" : "no"} l="relay" tone={cam.has_stream ? "ok" : "dim"} />
+          <span className="cam-live-sep" />
+          <Fact v={num(act?.detection_count ?? 0)} l="detections" />
+          <Fact v={num(act?.track_count ?? 0)} l="tracks" />
+          <Fact v={num(act?.plate_count ?? 0)} l="plates read" />
+          <Fact v={num(act?.open_event_count ?? 0)} l="open events"
+                tone={(act?.open_event_count ?? 0) > 0 ? "hot" : undefined} />
+          <span className="cam-live-sep" />
+          <Fact v={anpr?.tier ? titleCase(anpr.tier.replace(/_/g, " ")) : "—"} l="anpr"
+                tone={anpr?.tier === "anpr_capable" ? "ok" : undefined}
+                help="Measured from what this camera actually delivered, not a spec sheet. A plate needs roughly 90 px of width to read." />
+          <Fact v={anpr?.read_rate != null ? pct(anpr.read_rate, 1) : "—"} l="read rate" />
+          <Fact v={anpr?.median_vehicle_width_px ? `${Math.round(anpr.median_vehicle_width_px)} px` : "—"}
+                l="median vehicle"
+                help="Half of the vehicles seen here are narrower than this. Below about 90 px a plate cannot be resolved at all." />
+          <span className="cam-live-sep" />
+          <Fact v={act?.last_ts ? ago(act.last_ts) : "never"} l="indexed to" />
+          <Fact v={num(zones.length)} l="zones" />
+        </div>
+
+        {/* The plates this camera has read, newest first. Horizontal because it
+            is scanned, not read — and it is the answer to the question an
+            officer opens a camera with. */}
+        <div className="cam-plates">
+          <div className="cam-plates-head">
+            <b>Recent plate reads</b>
+            <Help>
+              The track-level answer, not a single frame. Confidence bands are
+              measured: act on the green ones, confirm the rest against the crop.
+            </Help>
+            <span className="grow" />
+            <Link className="tiny" to={`/search?camera=${ref}`}>Search this camera →</Link>
+          </div>
+          <div className="cam-plates-rail">
+            {tracks.isLoading && <span className="tiny faint">Loading…</span>}
+            {!tracks.isLoading && plated.length === 0 && (
+              <span className="tiny faint">No track has carried a plate read here.</span>
+            )}
+            {plated.map((t) => (
+              <Link key={t.id} to={`/investigate?track=${t.id}`} className="plate-card">
+                <Thumb src={t.thumbnail_url} label={t.class ?? "crop"} zoomable={false} />
+                <Plate text={t.plate_text} trust={t.plate_trust}
+                       origin={t.plate_origin} rtoKnown={t.rto_known} />
+                <span className="tiny faint trunc">
+                  {hhmmss(t.first_seen)} · {t.plate_read_count} reads
+                </span>
+                {/* What the vehicle looked like, with the parts this system is
+                    unsure of marked — a plate beside a contested colour is a
+                    different lead from a plate beside a confident one. */}
+                <span className="tiny trunc">
+                  <Appearance colour={t.dominant_color} klass={t.class}
+                              colourUncertain={t.colour_uncertain}
+                              classUncertain={t.class_uncertain} />
+                </span>
+              </Link>
+            ))}
           </div>
         </div>
+      </div>
 
-        <Player cameraRef={ref} zones={zones} />
-
-        <div className="row wrap tiny" style={{ gap: 5 }}>
-          <Pill k="accent">{titleCase(cam.department ?? "")}</Pill>
-          <span className="pill">{String(cam.metadata?.source_system ?? "unknown system")}</span>
-          <span className="pill mono">{cam.camera_uid ?? "no UID"}</span>
-          <span className="pill">{String(cam.metadata?.stream_protocol ?? "—").toUpperCase()}</span>
-        </div>
-
-      </aside>
-
-      <main className="ws-main">
-          <section className="card">
-            <header>
-              <b>Indexed activity</b>
-              <span className="grow" />
-              <select className="sm" value={hours} onChange={(e) => setHours(+e.target.value)}
-                      aria-label="Window">
-                {[1, 6, 24, 72, 168].map((h) => <option key={h} value={h}>{h}h</option>)}
-              </select>
-              <select className="sm" value={bucket} onChange={(e) => setBucket(+e.target.value)}
-                      aria-label="Bucket size">
-                {[1, 5, 15, 60].map((m) => <option key={m} value={m}>{m} min</option>)}
-              </select>
-            </header>
-            <div className="body">
-              {tl.isLoading && <Skeleton rows={3} />}
-              {(tl.data?.buckets ?? []).length === 0 && !tl.isLoading && (
-                <Empty>Nothing indexed from this camera in the last {hours}h. Run the batch indexer to cover it.</Empty>
-              )}
-              <div className="row" style={{ alignItems: "flex-end", gap: 2, height: 90 }}>
-                {(tl.data?.buckets ?? []).map((b: any) => (
-                  <div key={b.bucket} title={`${fullStamp(b.bucket)}\n${num(b.detections)} detections · ${num(b.tracks)} tracks · ${num(b.plates)} plates`}
-                       style={{
-                         flex: 1, minWidth: 2, borderRadius: 2,
-                         height: `${Math.max(2, (b.detections / peak) * 100)}%`,
-                         background: b.plates > 0 ? "var(--accent)" : "var(--accent-dim)",
-                       }} />
-                ))}
-              </div>
-              {(tl.data?.buckets ?? []).length > 1 && (
-                <div className="row tiny faint" style={{ marginTop: 4 }}>
-                  <span>{hhmmss(tl.data.buckets[0].bucket)}</span>
-                  <span className="right">{hhmmss(tl.data.buckets[tl.data.buckets.length - 1].bucket)}</span>
-                </div>
-              )}
-              <div className="tiny faint" style={{ marginTop: 6 }}>
-                Bars are detections per {bucket}-minute bucket; brighter bars are buckets that also yielded a plate read.
-              </div>
-            </div>
-          </section>
-
-          <section className="card">
-            <header><b>Recent plate reads</b>
-              <span className="grow" />
-              <Link className="tiny" to={`/search?camera=${ref}`}>Search this camera →</Link>
-            </header>
-            <div className="body">
-              {tracks.isLoading && <Skeleton rows={3} />}
-              {(tracks.data?.items ?? []).length === 0 && !tracks.isLoading && (
-                <Empty>No track carried a plate read here.</Empty>
-              )}
-              <div className="grid g3">
-                {(tracks.data?.items ?? []).map((t) => (
-                  <Link key={t.id} to={`/investigate?track=${t.id}`} className="item col"
-                        style={{ gap: 5, color: "inherit" }}>
-                    <Thumb src={t.thumbnail_url} label={t.class ?? "crop"} />
-                    <div className="row" style={{ gap: 6 }}>
-                      <b className="mono">{t.plate_text}</b>
-                      {t.plate_confidence != null && (
-                        <span className="tiny faint">{pct(t.plate_confidence, 0)}</span>
-                      )}
-                      <span className="right tiny faint">{t.plate_read_count} reads</span>
-                    </div>
-                    <div className="tiny faint trunc">
-                      <Appearance colour={t.dominant_color} klass={t.class}
-                                  colourUncertain={t.colour_uncertain} classUncertain={t.class_uncertain} /> · {stamp(t.first_seen)} · {dur(t.duration_s)}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </section>
-          <section className="card">
-            <header><b>Index</b></header>
-            <div className="body">
-              <dl className="kv">
-                <dt>Detections</dt><dd>{num(act?.detection_count ?? 0)}</dd>
-                <dt>Tracks</dt><dd>{num(act?.track_count ?? 0)}</dd>
-                <dt>Plate reads</dt><dd>{num(act?.plate_count ?? 0)}</dd>
-                <dt>Events</dt><dd>{num(act?.event_count ?? 0)}</dd>
-                <dt>Open</dt><dd>{num(act?.open_event_count ?? 0)}</dd>
-                <dt>Zones</dt><dd>{num(act?.zone_count ?? 0)}</dd>
-                <dt>First</dt><dd>{act?.first_ts ? stamp(act.first_ts) : "—"}</dd>
-                <dt>Last</dt><dd>{act?.last_ts ? `${stamp(act.last_ts)} (${ago(act.last_ts)})` : "—"}</dd>
-              </dl>
-              {Object.keys(act?.class_mix ?? {}).length > 0 && (
-                <>
-                  <hr className="sep" />
-                  <div className="tiny faint" style={{ marginBottom: 5 }}>Class mix</div>
-                  {Object.entries(act.class_mix as Record<string, number>)
-                    .sort((a, b) => b[1] - a[1]).map(([k, v]) => (
-                      <div key={k} className="row tiny" style={{ gap: 6 }}>
-                        <span style={{ width: 88 }} className="trunc">{k}</span>
-                        <Bar value={v} max={Math.max(...Object.values(act.class_mix as Record<string, number>))} />
-                        <span className="mono" style={{ width: 40, textAlign: "right" }}>{num(v)}</span>
-                      </div>
-                    ))}
-                </>
-              )}
-            </div>
-          </section>
-
-          <section className="card">
-            <header><b>Reachable next</b><span className="grow" />
-              <Link className="tiny" to={`/investigate?from=${ref}`}>Walk →</Link>
-            </header>
-            <div className="body col" style={{ gap: 7 }}>
-              {neighbours.length === 0 && (
-                <Empty>No transition edge from this camera. Rebuild the graph after indexing.</Empty>
-              )}
-              {neighbours.map((n: any) => (
-                <Link key={n.camera_id} to={`/cameras/${n.external_id}`} className="item col"
-                      style={{ gap: 3, color: "inherit" }}>
-                  <div className="row" style={{ gap: 6 }}>
-                    <span className="mono">{n.external_id}</span>
-                    <span className="trunc dim tiny">{n.name}</span>
-                    <span className="right">
-                      <Pill k={n.evidence === "confirmed" ? "ok" : n.evidence === "plate" ? "accent" : undefined}>
-                        {n.evidence}
-                      </Pill>
-                    </span>
+      {/* ── Below the fold: what has been indexed ───────────────────────── */}
+      <div className="cam-detail">
+        <section className="card">
+          <header>
+            <b>Indexed activity</b>
+            <Help>
+              Detections per bucket over recorded footage. Separate from the feed
+              above: indexing is a batch pass, so a camera can be streaming and
+              contribute nothing to search.
+            </Help>
+            <span className="grow" />
+            <select value={hours} onChange={(e) => setHours(Number(e.target.value))}
+                    aria-label="Window">
+              {[3, 6, 12, 24].map((h) => <option key={h} value={h}>{h}h</option>)}
+            </select>
+            <select value={bucket} onChange={(e) => setBucket(Number(e.target.value))}
+                    aria-label="Bucket size">
+              {[5, 15, 30, 60].map((m) => <option key={m} value={m}>{m}m</option>)}
+            </select>
+          </header>
+          <div className="body">
+            {tl.isLoading && <Skeleton rows={3} />}
+            {(tl.data?.buckets ?? []).length === 0 && !tl.isLoading && (
+              <Empty>Nothing indexed in this window.</Empty>
+            )}
+            <div className="col" style={{ gap: 4 }}>
+              {(tl.data?.buckets ?? []).map((b: any) => (
+                <div key={b.bucket} className="col" style={{ gap: 2 }}>
+                  <div className="row tiny">
+                    <span className="grow faint">{stamp(b.bucket)}</span>
+                    <span className="mono faint">{num(b.detections)}</span>
                   </div>
-                  <div className="tiny faint">
-                    {dur(n.median_transit_s)} typical · window {dur(n.p10_transit_s)}–{dur(n.p90_transit_s)}
-                    {n.distance_m != null && ` · ${(n.distance_m / 1000).toFixed(1)} km`}
-                    {n.observations ? ` · n=${n.observations}` : " · no sightings"}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </section>
-
-          <section className="card">
-            <header><b>Zones</b><span className="grow" />
-              <Link className="tiny" to={`/zones?camera=${ref}`}>Edit →</Link>
-            </header>
-            <div className="body col" style={{ gap: 6 }}>
-              {zones.length === 0 && <Empty>No zone drawn, so the zone-scoped rules cannot fire here.</Empty>}
-              {zones.map((z: any) => (
-                <div key={z.id} className="row tiny" style={{ gap: 6 }}>
-                  <span className={`dot ${z.active ? "low" : "info"}`} />
-                  <span className="trunc">{z.name}</span>
-                  <span className="right"><Pill>{z.kind}</Pill></span>
+                  <Bar value={b.detections}
+                       max={Math.max(1, ...(tl.data?.buckets ?? []).map((x: any) => x.detections ?? 0))} />
                 </div>
               ))}
             </div>
-          </section>
+          </div>
+        </section>
 
-          <section className="card">
-            <header><b>Recent events</b><span className="grow" />
-              <Link className="tiny" to={`/timeline?camera=${ref}`}>All →</Link>
-            </header>
-            <div className="body col" style={{ gap: 6 }}>
-              {recent.length === 0 && <Empty>No event on this camera.</Empty>}
-              {recent.map((e: any) => (
-                <Link key={e.id} to={`/timeline/${e.id}`} className="item row"
-                      style={{ gap: 7, color: "inherit" }}>
-                  <SevDot s={e.severity} />
-                  <span className="trunc grow">{e.label}</span>
-                  <span className="tiny faint">{hhmmss(e.started_at)}</span>
-                </Link>
-              ))}
-            </div>
-          </section>
-      </main>
+        <section className="card">
+          <header><b>Reachable next</b>
+            <Help>
+              Cameras a vehicle leaving here could arrive at, ranked by the
+              transition graph. Used to seed a reconstruction.
+            </Help>
+            <span className="grow" />
+            <Link className="tiny" to={`/investigate?camera=${ref}`}>Open the walk →</Link>
+          </header>
+          <div className="body col" style={{ gap: 6 }}>
+            {neighbours.length === 0 && <Empty>No modelled route out of this camera.</Empty>}
+            {neighbours.map((n: any) => (
+              <Link key={n.external_id ?? n.dst} to={`/cameras/${n.external_id ?? n.dst}`}
+                    className="row small" style={{ gap: 8, color: "inherit" }}>
+                <span className="mono">{n.external_id ?? n.dst}</span>
+                <span className="grow trunc dim">{n.name ?? ""}</span>
+                {n.median_s != null && <span className="tiny faint">~{dur(n.median_s)}</span>}
+                {n.evidence && <Pill>{n.evidence}</Pill>}
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section className="card">
+          <header><b>Zones</b>
+            <Help>The geometry the detector rules are evaluated against on this camera.</Help>
+            <span className="grow" />
+            <Link className="tiny" to="/zones">Edit zones →</Link>
+          </header>
+          <div className="body col" style={{ gap: 6 }}>
+            {zones.length === 0 && <Empty>No zone drawn on this camera.</Empty>}
+            {zones.map((z: any) => (
+              <div key={z.id} className="row small" style={{ gap: 8 }}>
+                <span className="grow trunc">{z.name}</span>
+                <Pill>{z.kind}</Pill>
+                {z.created_by === "derived" && <span className="tiny faint">derived</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="card">
+          <header><b>Recent events</b>
+            <span className="grow" />
+            <Link className="tiny" to={`/timeline?camera=${ref}`}>Timeline →</Link>
+          </header>
+          <div className="list">
+            {recent.length === 0 && <Empty>No event from this camera yet.</Empty>}
+            {recent.map((e: any) => (
+              <Link key={e.id} to={`/timeline/${e.id}`} className="item" style={{ color: "inherit" }}>
+                <SevDot s={e.severity} />
+                <Thumb src={e.thumbnail_url} className="sm" zoomable={false}
+                       label={titleCase(e.event_type)} />
+                <span className="grow col" style={{ gap: 1 }}>
+                  <span className="t trunc">{e.label}</span>
+                  <span className="m">{stamp(e.started_at)}</span>
+                </span>
+                <Status s={e.status} />
+              </Link>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+/** One figure in the horizontal status strip. */
+function Fact({ v, l, tone, help }:
+  { v: React.ReactNode; l: string; tone?: "ok" | "hot" | "dim"; help?: string }) {
+  return (
+    <div className={`cam-fact ${tone ?? ""}`}>
+      <b>{v}</b>
+      <span>{l}{help ? <Help>{help}</Help> : null}</span>
     </div>
   );
 }
