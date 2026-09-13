@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { api, getToken } from "../lib/api";
 import type { Zone } from "../lib/types";
 
 /**
@@ -35,6 +35,7 @@ const REASON: Record<string, string> = {
 export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[] }) {
   const video = useRef<HTMLVideoElement>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [live, setLive] = useState<boolean | null>(null);
   const [playing, setPlaying] = useState(false);
 
   const probe = useQuery({
@@ -56,23 +57,67 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
     let dead = false;
 
     (async () => {
-      if (el.canPlayType("application/vnd.apple.mpegurl")) {
-        el.src = url;
-        return;
-      }
+      // hls.js first, native HLS only as the fallback.
+      //
+      // The order used to be the other way round, on the reasonable-sounding
+      // basis that a browser's own decoder is cheaper than 130 kB of JavaScript.
+      // Chrome answers `canPlayType("application/vnd.apple.mpegurl")` with
+      // "maybe" — truthy — so it took that branch, and then the media element
+      // fetched the playlist's key and segment URLs itself, with no way to
+      // attach a header to either. The playlist loaded and every segment under
+      // it returned 401: a black player and no error, for a camera that was
+      // fine.
+      //
+      // hls.js issues those sub-requests through `xhrSetup` below, so one hook
+      // authenticates the playlist, the AES key and every segment, with the
+      // token in a header where it belongs.
       const { default: Hls } = await import("hls.js");
-      if (dead || !Hls.isSupported()) {
+      if (dead) return;
+      if (!Hls.isSupported()) {
+        // Genuine native HLS (Safari, iOS). No hook exists to add a header, so
+        // the token travels in the query string — the same trade the SSE stream
+        // makes, for the same reason, and confined to the one browser that
+        // needs it. The relay propagates it onto the URLs it rewrites.
+        if (el.canPlayType("application/vnd.apple.mpegurl")) {
+          const t = getToken();
+          el.src = t
+            ? `${url}${url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(t)}`
+            : url;
+          return;
+        }
         setErr("This browser cannot play HLS.");
         return;
       }
       hls = new Hls({
-        // Live-edge tuning. The default 30 s back-buffer is for VOD; on a live wall it
-        // just delays recovery after a stall and holds memory per open player.
-        lowLatencyMode: true,
-        backBufferLength: 12,
-        maxBufferLength: 8,
-        liveSyncDurationCount: 3,
+        // Tuned for whichever shape the gateway actually serves.
+        //
+        // This was configured for a live edge — `lowLatencyMode`, a 12 s back
+        // buffer, `maxBufferLength: 8`, `liveSyncDurationCount: 3`. The gateway
+        // serves `#EXT-X-PLAYLIST-TYPE:VOD`: 4,306 segments, twelve hours, with
+        // an ENDLIST. It is a recorded archive, not a live stream.
+        //
+        // The fatal part was `maxBufferLength: 8` against a
+        // `#EXT-X-TARGETDURATION:10`. hls.js will not buffer past its limit, and
+        // the limit was smaller than a single segment, so playback stalled
+        // before it began — a black player with no error.
+        //
+        // 30 s is comfortably above any sane target duration and is fine on a
+        // live edge too; hls.js applies its own live-window logic when the
+        // playlist says it is live, which is the right place for that decision
+        // rather than a constant chosen for one gateway.
+        maxBufferLength: 30,
+        backBufferLength: 30,
+        lowLatencyMode: false,
         enableWorker: true,
+        // Every request hls.js makes — playlist, segments and the AES key —
+        // goes through here, so one hook authenticates all three. Without it
+        // the relay answered 401 and the player showed an empty black box with
+        // no explanation, which reads as a dead camera rather than a dead
+        // session.
+        xhrSetup: (xhr: XMLHttpRequest) => {
+          const t = getToken();
+          if (t) xhr.setRequestHeader("Authorization", `Bearer ${t}`);
+        },
       });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (!data.fatal) return;
@@ -82,8 +127,19 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls?.startLoad();
         else setErr(`${data.details}`);
       });
+      // The playlist knows whether it is live; nothing else does. Surfaced so
+      // the UI can say "LIVE" only when it is true — a VMS must never let an
+      // operator mistake recorded footage for a live feed.
+      hls.on(Hls.Events.LEVEL_LOADED, (_e, data) => {
+        if (!dead) setLive(Boolean((data as { details?: { live?: boolean } }).details?.live));
+      });
       hls.loadSource(url);
       hls.attachMedia(el);
+      // Autoplay is commonly refused until the user has interacted with the
+      // page. Failing silently leaves a loaded-but-paused player that looks
+      // broken, so the refusal is caught and the controls are left to the
+      // operator rather than retried.
+      el.play().catch(() => {});
     })();
 
     return () => {
@@ -102,7 +158,18 @@ export function Player({ cameraRef, zones }: { cameraRef: string; zones?: Zone[]
              onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} />
       {zones?.length ? <ZoneOverlay zones={zones} /> : null}
       <div className="hud">
-        {playable && playing && <span className="pill ok">live</span>}
+        {/* Says what the playlist says, not what the player is doing.
+            This used to read "live" whenever anything was playing, and the
+            gateway serves `#EXT-X-PLAYLIST-TYPE:VOD` — twelve hours of recorded
+            segments with an ENDLIST. An operator cannot be allowed to mistake
+            an archive for a live feed; that confusion is the one a VMS exists to
+            prevent. When a genuinely live feed arrives the playlist says so and
+            this turns green on its own. */}
+        {playable && playing && (
+          live === true ? <span className="pill ok">● live</span>
+          : live === false ? <span className="pill" title="Recorded footage relayed from the gateway, not a live edge">recorded</span>
+          : <span className="pill">playing</span>
+        )}
         {probe.data?.encrypted && <span className="pill accent" title="AES-128 playlist">encrypted</span>}
         {probe.data?.latency_ms != null && (
           <span className="pill" title="Gateway round trip for the playlist">

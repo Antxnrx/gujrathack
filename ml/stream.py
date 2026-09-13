@@ -45,6 +45,11 @@ _MOZILLA_UA = (
 # segment fetch waits it out; the archive is not going anywhere, and finishing a
 # camera slowly beats recording it as unreachable.
 _RETRYABLE = {429, 500, 502, 503, 504}
+# Not retryable by waiting — retryable by signing in again. The gateway's
+# session cookie has a limited life, and when it lapses every camera fails at
+# once with one of these. Retrying the same dead cookie five times with backoff
+# just takes longer to fail.
+_REAUTH = {401, 403}
 _RETRY_ATTEMPTS = 5
 _RETRY_BASE_S = 2.0
 _RETRY_MAX_S = 30.0
@@ -73,6 +78,40 @@ class _HLSFetcher:
         self._session.headers.update({"User-Agent": _MOZILLA_UA})
         self._aes_key: bytes | None = None
         self._key_lock = threading.Lock()
+        # One re-authentication per failure, not a loop. If a fresh cookie is
+        # also refused the problem is the credential or the account, and
+        # hammering the login endpoint would turn that into an outage we caused.
+        self._reauth_lock = threading.Lock()
+        self._reauths = 0
+
+    def _reauthenticate(self) -> bool:
+        """Swap in a fresh session cookie. True if a new one was obtained.
+
+        ``ml.auth.get_cookie(refresh=True)`` has existed since the beginning and
+        its docstring says to call it "after any stream-auth failure" — nothing
+        ever did. The worker took a cookie at startup and held it for the life of
+        the process, so an expiry meant every camera thread died and stayed dead
+        until someone restarted the worker. On a batch run that was an annoyance;
+        on a 24/7 live system it is the whole estate going dark at once.
+
+        The AES key cache is dropped with it: the key is fetched with the same
+        session, and a key cached under a dead cookie is worthless.
+        """
+        from ml.auth import get_cookie
+
+        with self._reauth_lock:
+            try:
+                fresh = get_cookie(refresh=True)
+            except Exception as exc:
+                log.error("Re-authentication with the gateway failed: %s", exc)
+                return False
+            self._session.cookies.set("sentinel", fresh)
+            with self._key_lock:
+                self._aes_key = None
+            self._reauths += 1
+            log.warning("Gateway session had expired; signed in again "
+                        "(%d time(s) this process)", self._reauths)
+            return True
 
     # ── manifest ──────────────────────────────────────────────────────────────
 
@@ -80,6 +119,11 @@ class _HLSFetcher:
         """Fetch index.m3u8 and return (segment_urls, key_url)."""
         url = settings.hls_url(cam_id)
         r = self._session.get(url, timeout=60)
+        # The manifest is the first request a camera thread makes. An expired
+        # session here kills the thread before it ever reaches a segment, so the
+        # re-auth has to be on this path too, not only on the download.
+        if r.status_code in _REAUTH and self._reauthenticate():
+            r = self._session.get(url, timeout=60)
         r.raise_for_status()
 
         key_url: str | None = None
@@ -113,6 +157,19 @@ class _HLSFetcher:
                     settings.sentinel_base_url + key_url
                 )
                 resp = self._session.get(abs_url, timeout=10)
+                if resp.status_code in _REAUTH:
+                    # Careful: _reauthenticate clears this cache and takes
+                    # _key_lock, which this method already holds. Clearing is
+                    # redundant here anyway — we are about to set the key — so
+                    # the cookie swap is done directly.
+                    from ml.auth import get_cookie
+                    try:
+                        self._session.cookies.set("sentinel", get_cookie(refresh=True))
+                        log.warning("Gateway session expired while fetching the AES key; "
+                                    "signed in again")
+                        resp = self._session.get(abs_url, timeout=10)
+                    except Exception as exc:
+                        log.error("Re-authentication failed fetching the AES key: %s", exc)
                 resp.raise_for_status()
                 self._aes_key = resp.content
                 log.debug("AES key fetched (%d bytes)", len(self._aes_key))
@@ -139,6 +196,10 @@ class _HLSFetcher:
         for attempt in range(1, _RETRY_ATTEMPTS + 1):
             try:
                 resp = self._session.get(seg_url, timeout=90)
+                if resp.status_code in _REAUTH and attempt < _RETRY_ATTEMPTS:
+                    if not self._reauthenticate():
+                        resp.raise_for_status()
+                    continue
                 if resp.status_code in _RETRYABLE and attempt < _RETRY_ATTEMPTS:
                     wait = float(resp.headers.get("Retry-After") or delay)
                     log.info(

@@ -357,6 +357,36 @@ async def _fetch(url: str) -> httpx.Response:
     return r
 
 
+def _propagate_query_token(playlist: str, request: Request) -> str:
+    """Append this request's ``access_token`` to the URLs the playlist points at.
+
+    Only for the native-HLS case. Safari's media element fetches the AES key and
+    every segment itself, with no hook to set a header, so a playlist whose URLs
+    carry no credential yields a 401 on each one — a black player and no error.
+    hls.js never reaches this: it sends a header and `request.query_params` is
+    empty, so the playlist is returned untouched.
+    """
+    token = request.query_params.get("access_token")
+    if not token:
+        return playlist
+    from urllib.parse import quote
+    q = f"access_token={quote(token, safe='')}"
+    out: list[str] = []
+    for line in playlist.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#EXT-X-KEY") and 'URI="' in stripped:
+            head, _, rest = stripped.partition('URI="')
+            uri, _, tail = rest.partition('"')
+            sep = "&" if "?" in uri else "?"
+            out.append(f'{head}URI="{uri}{sep}{q}"{tail}')
+        elif stripped and not stripped.startswith("#"):
+            sep = "&" if "?" in stripped else "?"
+            out.append(f"{stripped}{sep}{q}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 @router.get("/{camera_ref}/index.m3u8", response_class=PlainTextResponse)
 async def playlist(
     camera_ref: str,
@@ -391,6 +421,12 @@ async def playlist(
     if not stats["segments"] and not stats["variants"]:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
                             "Gateway playlist contained no playable segments")
+    # A player that authenticated this request with a query token cannot
+    # authenticate the URLs inside the playlist any other way — a media element
+    # fetching its own key and segments has nowhere to put a header. So the
+    # token is carried onto them. Only when the caller used one: hls.js sends a
+    # header and its playlist stays clean.
+    body = _propagate_query_token(body, request)
     return PlainTextResponse(
         body,
         media_type="application/vnd.apple.mpegurl",

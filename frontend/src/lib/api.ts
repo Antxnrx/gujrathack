@@ -47,6 +47,13 @@ export function setToken(token: string | null, refreshToken?: string | null,
   }
 }
 
+/** The current access token, for the one caller that cannot go through
+ *  `request`: the HLS player, which hands URLs to hls.js and to the browser's
+ *  own media element rather than fetching them itself. */
+export function getToken(): string | null {
+  return bearer;
+}
+
 export function loadToken(): void {
   bearer = localStorage.getItem("setu.token");
   refresh = localStorage.getItem("setu.refresh");
