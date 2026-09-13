@@ -299,6 +299,29 @@ export function RegistrationCheckPanel({ check }: { check: RegistrationCheck | u
   );
 }
 
+/**
+ * "?" — what this panel is, on hover.
+ *
+ * Nearly every number in this console is derived rather than counted, and the
+ * derivation is the part an operator needs in order to trust it. "Awaiting
+ * triage" is not "all events", detector output is per rule and not per camera,
+ * and a plate's confidence band means something specific that was measured.
+ * Writing that next to each figure would bury the figure; hiding it entirely
+ * leaves an operator guessing.
+ *
+ * CSS-only on hover *and* focus, so it works from the keyboard, and it carries
+ * the text in `title` as well so a screen reader and a touch device both get it.
+ * No positioning library, no portal — a sibling span and one absolute rule.
+ */
+export function Help({ children }: { children: ReactNode }) {
+  const text = typeof children === "string" ? children : undefined;
+  return (
+    <span className="help" tabIndex={0} role="note" aria-label={text} title={text}>
+      ?<span className="help-bubble">{children}</span>
+    </span>
+  );
+}
+
 export function Bar({ value, max, color }: { value: number; max: number; color?: string }) {
   const w = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return <div className="bar"><i style={{ width: `${w}%`, background: color }} /></div>;

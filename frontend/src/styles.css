@@ -592,3 +592,74 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 .reg-check .sev-info     { border-left-color: var(--ok); }
 .reg-check .sev-info b   { color: var(--ok); }
 .warn-text { color: var(--warn); }
+
+
+/* ── "?" help ─────────────────────────────────────────────────────────────
+   A sibling span and one absolute rule — no positioning library and no portal.
+   Shown on hover and on focus, because a control room is used from the keyboard
+   as often as the mouse. */
+.help {
+  display: inline-grid; place-items: center;
+  width: 14px; height: 14px; flex: 0 0 14px;
+  border: 1px solid var(--line); border-radius: 50%;
+  font-size: 9px; font-weight: 600; line-height: 1;
+  color: var(--fg-faint); cursor: help; position: relative; user-select: none;
+}
+.help:hover, .help:focus-visible { color: var(--accent); border-color: var(--accent-dim); }
+.help-bubble {
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: 280px;
+  padding: 7px 9px; border-radius: var(--r-sm);
+  background: var(--bg-3); border: 1px solid var(--line);
+  color: var(--fg); font-size: 11.5px; font-weight: 400; line-height: 1.5;
+  text-align: left; letter-spacing: 0; text-transform: none;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.5);
+  opacity: 0; visibility: hidden; transition: opacity 120ms var(--ease, ease);
+  z-index: 40; pointer-events: none;
+}
+.help:hover .help-bubble, .help:focus-visible .help-bubble { opacity: 1; visibility: visible; }
+/* Near the right edge the bubble would overflow the viewport; anchor it right. */
+.help.right .help-bubble { left: auto; right: 0; transform: none; }
+
+/* ── Dashboard ────────────────────────────────────────────────────────────
+   Three bands, in the order a shift reads them: state, then the estate and the
+   queue running against it, then reference below the fold. The map is the
+   largest thing on the page because this is a geographic system — a camera is a
+   place, and an event is a place and a time. */
+.dash { display: flex; flex-direction: column; gap: 14px; }
+
+.kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.kpi { padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+.kpi-n { font: 600 26px/1.1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.kpi-l { display: flex; align-items: center; gap: 5px;
+         font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+.kpi.hot  .kpi-n { color: var(--danger); }
+.kpi.warm .kpi-n { color: var(--warn); }
+.kpi.cool .kpi-n { color: var(--accent); }
+
+/* The map gets the room. Below 1100px the rail drops under it rather than
+   squeezing both into unusable columns. */
+.dash-main { display: grid; gap: 12px; grid-template-columns: minmax(0, 1.75fr) minmax(320px, 1fr); }
+@media (max-width: 1100px) { .dash-main { grid-template-columns: 1fr; } }
+
+.map-card { display: flex; flex-direction: column; min-height: 0; }
+.map-body { flex: 1; min-height: 440px; }
+.map-body .mapwrap { height: 100%; width: 100%; }
+.map-foot {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 7px 12px; border-top: 1px solid var(--line-soft);
+  font-size: 11.5px; color: var(--fg-dim);
+}
+.map-foot b { color: var(--fg); font-family: var(--mono); }
+.map-legend { display: inline-flex; align-items: center; gap: 5px;
+              font-size: 10.5px; color: var(--fg-faint); }
+.map-legend .lg { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.map-legend .lg.hot { background: #f43f5e; margin-left: 4px; }
+.map-legend .lg.ok  { background: #64748b; margin-left: 10px; }
+
+.dash-rail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.rail-feed { display: flex; flex-direction: column; min-height: 0; }
+/* Scrolls inside its own panel so the page keeps one scrollbar, not three. */
+.rail-list { max-height: 360px; overflow-y: auto; }
+
+.dash-foot { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
