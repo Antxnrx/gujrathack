@@ -6,7 +6,7 @@ detections table with CLIP embeddings, colour buckets, and pts_ms for
 video-seek.
 
 Run this overnight AFTER resetting the schema (scripts/reset.py) and seeding
-(scripts/seed.py). Do NOT run the live worker at the same time.
+(scripts/sync_registry.py). Do NOT run the live worker at the same time.
 
 Usage:
     python -m scripts.batch_index
@@ -90,7 +90,7 @@ def index_camera(
 
     camera_uuid = get_camera_id(conn, cam_external_id)
     if camera_uuid is None:
-        log.error("%s Not in DB -- run scripts/seed.py first. Skipping.", prefix)
+        log.error("%s Not in DB -- run scripts/sync_registry.py first. Skipping.", prefix)
         conn.close()
         return {"camera_id": cam_external_id, "skipped": True, "reason": "not_in_db"}
 

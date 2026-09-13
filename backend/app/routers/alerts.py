@@ -159,7 +159,7 @@ async def get_alert(alert_id: str, _: Operator = Depends(current_operator)) -> d
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such alert")
 
     # Every read of the same plate on the same track, so an operator can judge the
-    # consensus rather than trust one frame. scripts/score_anpr.py measured
+    # consensus rather than trust one frame. scripts/score_plate_truth.py measures
     # one frame's read is not an identification — the track's folded plate is.
     reads = []
     if row.get("track_uuid"):

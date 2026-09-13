@@ -28,7 +28,8 @@ lead 0/1. The accuracy is modest; the calibration is the useful part, and
 says the same thing.
 
 An earlier version of this docstring quoted 17.6% single-read against 85.2%
-consensus. Those came from ``scripts/score_anpr.py`` run over *synthetic* tracks,
+consensus. Those came from a scorer run over *synthetic* tracks (both it and the
+seeder that produced them have since been deleted),
 where the seeder knew the answer — they measured the voting algorithm against a
 simulated error model, not ANPR against a road.
 """

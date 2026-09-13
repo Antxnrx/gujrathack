@@ -58,7 +58,7 @@ log = logging.getLogger("setu.api.dragnet")
 # comparison — a substitution inside a glyph class (O/0, I/1, S/5, B/8, Z/2, G/6)
 # costs a quarter of a real one — and its docstring names this engine as the
 # consumer. Imported rather than reimplemented: two confusion tables in one repo
-# would drift, and the one in ``ml`` is the one ``scripts/score_anpr.py`` measures
+# would drift, and the one in ``ml`` is the one ``scripts/score_plate_truth.py`` measures
 # against, which is where the thresholds below get their calibration.
 #
 # On that scale, measured across 3,188 tracks of known ground truth:
@@ -98,7 +98,7 @@ class Anchor:
     supported and is weaker evidence.
 
     (An earlier version of this docstring claimed 85.2% against 17.6%. Those
-    figures came from ``scripts/score_anpr.py`` run over *synthetic* tracks where
+    figures came from a scorer run over *synthetic* tracks where
     the seeder knew the answer — they measured the voting algorithm against a
     simulated error model, not ANPR against a road.)
     """
@@ -281,7 +281,7 @@ async def background_for(anchor: Anchor, camera_id: str) -> Background:
 
 
 # ── Evidence constants, with their provenance ───────────────────────────────
-# Measured on this project's own data by ``scripts/score_anpr.py`` over 3,188 tracks
+# Measured on this project's own data over 3,188 tracks
 # whose intended plate is known because the seeder generated it:
 _P_PLATE_EXACT_GIVEN_SAME = 0.852       # consensus exact accuracy
 _P_PLATE_DISAGREE_GIVEN_SAME = 0.148    # its complement

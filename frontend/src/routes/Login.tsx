@@ -69,7 +69,7 @@ export default function Login({ model1, onSignedIn }: Props) {
         setError("The registry signed in but returned no token.");
         return;
       }
-      setToken(body.access_token);
+      setToken(body.access_token, body.refresh_token ?? null, model1);
       onSignedIn();
     } catch {
       setError(`Could not reach the registry at ${model1}.`);

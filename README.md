@@ -73,8 +73,8 @@ docker exec -i setu-pg psql -U setu -d setu < scripts/schema.sql
 # If native psql client is installed:
 # psql postgresql://setu:setu_dev_only@localhost:5432/setu -f scripts/schema.sql
 
-# 7. Seed cameras + watchlist
-python -m scripts.seed
+# 7. Pull the camera estate from Model 1 (the registry owns it)
+python -m scripts.sync_registry
 
 # 8. (Optional) Check which feeds are reachable
 python -m scripts.check_feeds
@@ -126,8 +126,8 @@ python -m scripts.reset
 # 2. Re-apply schema in docker container
 Get-Content scripts\schema.sql | docker exec -i setu-pg psql -U setu -d setu
 
-# 3. Re-seed cameras and watchlist
-python -m scripts.seed
+# 3. Re-pull the camera estate from Model 1
+python -m scripts.sync_registry
 ```
 
 ## Docker

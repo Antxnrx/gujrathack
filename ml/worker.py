@@ -51,7 +51,7 @@ def process_camera(cam_external_id: str) -> None:
 
     camera_uuid = get_camera_id(conn, cam_external_id)
     if camera_uuid is None:
-        log.error("%s Camera not found in DB — run scripts/seed.py first", prefix)
+        log.error("%s Camera not found in DB — run scripts/sync_registry.py first", prefix)
         return
 
     from ml.auth import get_cookie

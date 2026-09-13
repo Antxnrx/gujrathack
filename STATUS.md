@@ -60,7 +60,7 @@ The ML Pipeline is now **Feature Complete** for the hackathon.
 
 - [ ] **Fresh Schema Deployment & Docker Execution**:
   - Running database reset (`scripts/reset.py`) and applying updated `scripts/schema.sql` with `pts_ms` and `dominant_color` inside the PostgreSQL container.
-  - Seeding the 30 Sentinel cameras with coordinates (`scripts/seed.py`).
+  - Pulling the 30 Sentinel cameras from the Model 1 registry (`scripts/sync_registry.py`).
 - [ ] **End-to-End Pipeline Dry Run**:
   - Verifying a short test run on `cam04` and `cam12` to verify that `track_id`, `pts_ms`, `dominant_color`, `embedding`, and MinIO thumbnails are all populated cleanly.
 

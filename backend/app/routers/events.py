@@ -72,7 +72,7 @@ async def list_events(
                z.name AS zone_name,
                COALESCE(tg.tags, '[]'::jsonb)  AS tags,
                ie.incident_id,
-               inc.ref AS incident_ref,
+               ie.incident_ref,
                -- Notes on the alert count too. An operator triaging the live queue
                -- writes against the alert; the timeline shows the event tr_alert_mirror
                -- made from it. Counting only one of the two makes a note invisible
@@ -87,8 +87,25 @@ async def list_events(
         FROM events e
         JOIN cameras c ON c.id = e.camera_id
         LEFT JOIN zones z ON z.id = e.zone_id
-        LEFT JOIN incident_events ie ON ie.event_id = e.id
-        LEFT JOIN incidents inc ON inc.id = ie.incident_id
+        -- LATERAL, not a plain join. incident_events is many-to-many: the same
+        -- event legitimately belongs to more than one incident, and a LEFT JOIN
+        -- then returns that event once per incident. The rows are identical
+        -- apart from incident_id, so the timeline rendered the same event twice,
+        -- React dropped the duplicate keys, and LIMIT counted the copies — a
+        -- page of 12 could contain 9 distinct events. Four events on this estate
+        -- were in two incidents each, which is how it surfaced.
+        --
+        -- The response carries one incident, so one is selected here. Most
+        -- recently attached wins: that is the incident an operator is currently
+        -- working the event under.
+        LEFT JOIN LATERAL (
+            SELECT ie2.incident_id, inc2.ref AS incident_ref
+            FROM incident_events ie2
+            JOIN incidents inc2 ON inc2.id = ie2.incident_id
+            WHERE ie2.event_id = e.id
+            ORDER BY ie2.added_at DESC
+            LIMIT 1
+        ) ie ON TRUE
         LEFT JOIN (
             SELECT et.event_id,
                    jsonb_agg(jsonb_build_object('id', t.id, 'name', t.name,
@@ -105,7 +122,8 @@ async def list_events(
                   SELECT 1 FROM event_tags et2 JOIN tags t2 ON t2.id = et2.tag_id
                   WHERE et2.event_id = e.id AND t2.name = ANY($6)))
           AND ($7::text    IS NULL OR e.plate_text = $7)
-          AND ($8::boolean IS NULL OR (ie.incident_id IS NOT NULL) = $8)
+          AND ($8::boolean IS NULL OR EXISTS (
+                  SELECT 1 FROM incident_events ie3 WHERE ie3.event_id = e.id) = $8)
           AND ($9::timestamptz  IS NULL OR e.started_at >= $9)
           AND ($10::timestamptz IS NULL OR e.started_at <  $10)
         ORDER BY {order_sql}

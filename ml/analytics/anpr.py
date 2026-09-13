@@ -96,7 +96,7 @@ _MIN_READ_LEN = 5
 #   validator_fuzzy  substituted characters the vote never supported at all
 #   unsnapped        failed every structural check; not a legal plate in any form
 #
-# ``scripts/score_anpr.py`` against 3,188 seeded tracks measures those paths at
+# A scorer run against 3,188 seeded tracks measured those paths at
 # 90.7% / 65.7% / 25.0% / 0.0% exact, so the ordering is the right one and the
 # earlier single "0.75 if not format_valid" was badly wrong in both directions:
 # it discounted a legal beam-snap not at all, and paid a 0.75 bonus to unsnapped
