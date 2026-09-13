@@ -269,8 +269,15 @@ export function Pager({ page, onPage }:
         {total !== undefined ? ` of ${total}` : ""}
       </span>
       <span className="right row">
-        <button className="sm" disabled={offset === 0} onClick={() => onPage(Math.max(0, offset - limit))}>Prev</button>
-        <button className="sm" disabled={!more} onClick={() => onPage(offset + limit)}>Next</button>
+        {/* A disabled control should say why it is disabled — "Prev" greyed out
+            with no explanation reads as broken rather than as "you are on the
+            first page". */}
+        <button className="sm" disabled={offset === 0}
+                title={offset === 0 ? "You are on the first page" : "Previous page"}
+                onClick={() => onPage(Math.max(0, offset - limit))}>Prev</button>
+        <button className="sm" disabled={!more}
+                title={!more ? "No more results" : "Next page"}
+                onClick={() => onPage(offset + limit)}>Next</button>
       </span>
     </div>
   );

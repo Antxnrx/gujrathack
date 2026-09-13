@@ -217,7 +217,12 @@ function WatchlistPanel() {
             <input type="checkbox" checked={backfill} onChange={(e) => setBackfill(e.target.checked)} />
             Also search footage already indexed
           </label>
-          <button className="primary" disabled={add.isPending || !value || !reason.trim()}>Add to watchlist</button>
+          <button className="primary" disabled={add.isPending || !value || !reason.trim()}
+                  title={!value ? "Enter the plate to watch for"
+                         : !reason.trim() ? "Say why it is wanted — it goes in the case file"
+                         : add.isPending ? "Adding…" : "Arm the watchlist and search the archive"}>
+            Add to watchlist
+          </button>
         </form>
 
         <hr className="sep" />

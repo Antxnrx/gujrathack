@@ -131,7 +131,9 @@ export default function Investigate() {
                 {[1, 3, 8, 20].map((n) => <option key={n} value={n}>{n}×</option>)}
               </select>
             </label>
-            <button className="primary" onClick={run} disabled={!anchor || hop.isPending}>
+            <button className="primary" onClick={run} disabled={!anchor || hop.isPending}
+                    title={!anchor ? "Pick a track first — the walk starts from a sighting"
+                           : hop.isPending ? "Searching…" : "Rank the next cameras this vehicle could reach"}>
               {hop.isPending ? "Searching…" : "Where next?"}
             </button>
           </div>

@@ -189,7 +189,12 @@ async def get_event(event_id: str, _: Operator = Depends(current_operator)) -> d
         """
         SELECT e.*, c.external_id AS camera_external_id, c.name AS camera_name,
                c.district, c.area, c.lat, c.lng, c.ingest_url IS NOT NULL AS has_stream,
-               z.name AS zone_name, z.polygon AS zone_polygon
+               z.name AS zone_name, z.polygon AS zone_polygon,
+               -- The list returns this and the detail did not, so the star on an
+               -- open event always read "Save" however many times it had been
+               -- saved — and clicking it again tried to bookmark a second time.
+               EXISTS (SELECT 1 FROM bookmarks b
+                        WHERE b.target_type = 'event' AND b.target_id = e.id) AS bookmarked
         FROM events e JOIN cameras c ON c.id = e.camera_id
         LEFT JOIN zones z ON z.id = e.zone_id
         WHERE e.id = $1
