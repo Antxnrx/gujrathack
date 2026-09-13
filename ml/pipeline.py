@@ -33,10 +33,6 @@ _MAX_PLATE_WIDTH_FRAC = 0.9
 # Below this the characters were never sampled; see the per-camera survey in
 # scripts/survey_plate_feasibility.py.
 _MIN_PLATE_WIDTH = 40
-# Plates narrower than this get a mild upscale so the model's own resize has
-# something to work with; wider ones are passed through untouched.
-_SMALL_PLATE_WIDTH = 120
-_MAX_UPSCALE = 2.5
 # How far to widen the detector's plate box before cropping. Measured optimum;
 # see _extract_plate for the sweep.
 _PLATE_BOX_PAD = 0.25
@@ -415,14 +411,15 @@ class DetectionPipeline:
                 stats["bad_box"] += 1
                 return None, None
 
-            prepared = self._prepare_plate(plate_crop)
-            preds = self.plate_ocr.run(prepared, return_confidence=True)
-            if not preds:
+            # The backend owns its own colour mode, resize and normalisation —
+            # see ml/ocr.py. The pipeline hands over a BGR plate crop and gets
+            # back a string, which is the only contract that survived changing
+            # the model underneath it.
+            read = self.plate_ocr.read(plate_crop)
+            if read is None or not read.text:
                 stats["no_read"] += 1
                 return None, None
-
-            pred = preds[0] if isinstance(preds, list) else preds
-            clean_text = re.sub(r'[^A-Z0-9]', '', (pred.plate or '').upper())
+            clean_text = read.text
 
             # ── Gate 4: long enough to be a plate at all? ────────────────────
             # The old floor was 4, which admitted fragments like "1427" and
@@ -447,11 +444,7 @@ class DetectionPipeline:
                 stats["osd_reject"] += 1
                 return None, None
 
-            probs = pred.char_probs
-            ocr_conf = (
-                float(sum(probs) / len(probs))
-                if probs is not None and len(probs) > 0 else 0.0
-            )
+            ocr_conf = read.confidence
 
             stats["read"] += 1
             validated = validate_plate(clean_text)
@@ -480,49 +473,6 @@ class DetectionPipeline:
                     stats["error"], type(exc).__name__, exc,
                 )
             return None, None
-
-    def _prepare_plate(self, plate_crop: np.ndarray) -> np.ndarray:
-        """Put a plate crop into the colour space the loaded OCR expects.
-
-        Deliberately almost nothing happens here, and that is the finding rather
-        than an omission. This previously ran CLAHE, a bilateral filter and an
-        unsharp mask, on the reasonable-sounding theory that a small, dim plate
-        needs help. Measured against the same 70 crops, it was destroying reads:
-
-            preprocessing   mean len   10-char   legal   4-digit tail
-            raw                 8.29        18      17              9
-            upscale 2x          8.31        24      14             10
-            CLAHE               7.01         6      15              7
-            unsharp             8.51        24      11              9
-
-        CLAHE is the clearest loser — it cuts full-length reads by two thirds.
-        These models are trained on ordinary crops and do their own normalisation
-        and resizing internally; equalising first hands them an image unlike
-        anything in their training distribution.
-
-        What survives is a mild upscale for genuinely small plates, where
-        interpolation gives the model's own resize something to work with. Large
-        plates are passed through untouched, because upscaling them only adds
-        interpolation noise to detail that is already there.
-
-        The colour mode comes from the model's config rather than being assumed:
-        grayscale for the MobileViT checkpoint, RGB for the CCT family. Passing
-        the wrong one either raises InvalidArgument or, worse, is silently
-        accepted and quietly degrades every read.
-        """
-        h, w = plate_crop.shape[:2]
-        if w < _SMALL_PLATE_WIDTH and w > 0:
-            scale = min(_MAX_UPSCALE, _SMALL_PLATE_WIDTH / w)
-            plate_crop = cv2.resize(
-                plate_crop, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC
-            )
-
-        cfg = getattr(self.plate_ocr, "config", None)
-        colour = getattr(cfg, "image_color_mode", "grayscale")
-
-        if colour == "grayscale":
-            return cv2.cvtColor(plate_crop, cv2.COLOR_BGR2GRAY)
-        return cv2.cvtColor(plate_crop, cv2.COLOR_BGR2RGB)
 
     def plate_report(self) -> dict:
         """Where plate reads were lost, as counts. Logged at the end of a run."""

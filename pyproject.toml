@@ -32,6 +32,14 @@ dependencies = [
   "pydantic-settings>=2.4",
   "pydantic>=2.9",
   "requests>=2.32",            # Sentinel cookie auth + HLS segment download
+  # India-specific plate OCR (Awiros/anpr-ocr, Apache-2.0). Optional at runtime:
+  # ml/ocr.py falls back to the global fast-plate-ocr model if these are absent,
+  # loudly, because the difference is 78% exact against 33%.
+  "paddlepaddle>=3.0",
+  "safetensors>=0.4",
+  "shapely>=2.0",          # pulled in by PaddleOCR postprocess imports
+  "pyclipper>=1.3",
+  "scikit-image>=0.22",
 ]
 
 [project.optional-dependencies]

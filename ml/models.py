@@ -95,39 +95,31 @@ def get_plate_detector():
     return _plate_detector
 
 def get_plate_ocr():
-    """The plate OCR, pinned to the CPU execution provider.
+    """The plate OCR, as a backend that owns its own preprocessing.
 
-    Not an oversight — onnxruntime's CoreML provider mis-partitions this graph on
-    Apple Silicon and fails at inference with
-
-        Size (9) of dimension (2) is not in allowed range (8..8)
-
-    which surfaces as an ONNXRuntimeError on *every* call, so ANPR returns
-    nothing at all on a Mac while looking like a footage problem. The OCR model
-    is a few megabytes and runs comfortably on CPU; the GPU belongs to YOLO and
-    CLIP, which are the stages that actually need it.
-
-    ``SETU_OCR_DEVICE`` overrides for a CUDA box, where the provider is fine.
+    Which one is chosen matters more than any other single setting in the plate
+    path. Measured head to head on this estate's crops against plates read by a
+    human, the India-specific model reads 78% of them exactly where the global
+    model reads 33%. ``ml/ocr.py`` carries the comparison and the fallback
+    behaviour; both run on CPU, because the GPU belongs to YOLO and CLIP.
     """
     global _plate_ocr
     with _ocr_lock:
         if _plate_ocr is None:
-            from fast_plate_ocr import LicensePlateRecognizer
-            ocr_device = os.getenv("SETU_OCR_DEVICE", "cpu")
-            log.info("Loading plate OCR %s on %s", settings.plate_ocr_model, ocr_device)
-            _plate_ocr = LicensePlateRecognizer(settings.plate_ocr_model, device=ocr_device)
-            cfg = _plate_ocr.config
-            log.info(
-                "Plate OCR config: %d slots, %dx%d, %s",
-                cfg.max_plate_slots, cfg.img_width, cfg.img_height, cfg.image_color_mode,
-            )
-            if cfg.max_plate_slots < 10:
-                log.warning(
-                    "Plate OCR has only %d character slots. A modern Indian plate is 10 "
-                    "characters (GJ01AB1234), so this model cannot represent one and will "
-                    "silently truncate every full-length read.",
-                    cfg.max_plate_slots,
+            from ml import ocr as ocr_mod
+
+            backend = settings.plate_ocr_backend
+            log.info("Loading plate OCR backend %r", backend)
+            if backend == "awiros":
+                _plate_ocr = ocr_mod.build(
+                    "awiros",
+                    weights=settings.awiros_weights,
+                    dict_path=settings.awiros_dict,
+                    paddleocr_dir=settings.awiros_paddleocr_dir,
                 )
+            else:
+                _plate_ocr = ocr_mod.build("fast")
+            log.info("Plate OCR ready: %s", _plate_ocr.name)
     return _plate_ocr
 
 def warm_all_models():

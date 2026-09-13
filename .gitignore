@@ -32,3 +32,6 @@ plate_crops
 artifacts/
 minio_data/
 plate_dataset/
+artifacts/awiros/PaddleOCR/
+artifacts/awiros/model.safetensors
+artifacts/plate_regions/
