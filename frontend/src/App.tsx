@@ -76,28 +76,46 @@ function Nav() {
 }
 
 /**
- * Out to the registry.
+ * Out to the registry — the other half of the same product.
  *
- * The estate this console reasons over is owned by Model 1 — camera identity,
+ * The estate this console reasons over is owned by Model 1: camera identity,
  * department, location and stream address all come from there, and anything an
- * operator wants to *change* about a camera is changed there too. Leaving them
- * to find that themselves would be the wrong kind of separation: two systems on
- * one account should feel like two halves, not two products.
+ * operator wants to *change* about a camera is changed there. The services are
+ * separate on purpose — two APIs, two databases, either redeployable without the
+ * other — but that boundary is architectural and the user should not have to see
+ * it. A single "Registry ↗" link made them see it: it said another product
+ * exists and left them to find their way around it.
  *
- * The URL is whatever the API reports it is talking to, so this follows the
- * deployment rather than a build-time constant.
+ * So the registry's own sections are listed here, the way this console's
+ * sections are listed in the registry's sidebar. Sign-in carries across without
+ * a second prompt, because the registry issues the token and this console
+ * verifies it against the registry's published keys.
+ *
+ * The base URL is whatever the API reports it is talking to, so this follows the
+ * deployment rather than a build-time constant, and the whole group disappears
+ * when no registry is configured.
  */
+const REGISTRY_SECTIONS = [
+  ["/map", "Map"],
+  ["/cameras", "Camera register"],
+  ["/health", "Camera health"],
+  ["/coverage", "Coverage"],
+  ["/onboarding", "Onboarding"],
+] as const;
+
 function RegistryLink() {
   const health = useHealth();
   const base = health.data?.checks?.model1?.portal_url;
   if (!base) return null;
   return (
     <>
-      <div className="nav-group">Estate</div>
-      <a className="nav-link" href={base} target="_blank" rel="noreferrer"
-         title="Camera registry — onboarding, coverage, health and GIS">
-        <span className="lbl">Registry ↗</span>
-      </a>
+      <div className="nav-group">Estate · registry</div>
+      {REGISTRY_SECTIONS.map(([path, label]) => (
+        <a key={path} className="nav-link" href={`${base}${path}`}>
+          <span className="lbl">{label}</span>
+          <span className="tiny faint">↗</span>
+        </a>
+      ))}
     </>
   );
 }
