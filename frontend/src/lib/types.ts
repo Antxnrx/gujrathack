@@ -213,3 +213,72 @@ export interface Facets {
   districts?: { value: string; n: number }[];
   coverage: { from_ts: string | null; to_ts: string | null };
 }
+
+
+/* ── Playbooks ─────────────────────────────────────────────────────────────
+   The console arranged by the job. `caveats` is part of the contract, not a
+   nicety: a playbook returns what it found *and* what could be wrong with it,
+   and the UI is required to show both. */
+
+export interface PlaybookSpec {
+  id: string;
+  name: string;
+  question: string;
+  when: string;
+  needs: string[];
+  produces: string[];
+  endpoint: string;
+  /** The lowest role that may run it, so the console can say so before the form. */
+  requires: string;
+  note: string;
+}
+
+/** One row of a playbook answer — a past sighting or a vehicle present. The two
+ *  shapes overlap enough to render in one table, and differ in `match`, which
+ *  only a plate search produces. */
+export interface PlaybookRow extends PlateMeta {
+  id?: string;
+  track_id?: string;
+  plate_text: string | null;
+  class: string | null;
+  dominant_color: string | null;
+  first_seen: string;
+  camera_external_id: string;
+  camera_name: string | null;
+  thumbnail_url: string | null;
+  /** "exact" | "confusion" — only on plate searches. */
+  match?: string;
+  match_score?: number;
+}
+
+export interface PlaybookResult {
+  playbook: string;
+  asked: Record<string, unknown>;
+  found: {
+    sightings?: PlaybookRow[];
+    vehicles?: PlaybookRow[];
+    sighting_count?: number;
+    vehicle_count?: number;
+    people_count?: number;
+    present_count?: number;
+    exact?: number;
+    inferred?: number;
+    with_readable_plate?: number;
+    actionable_plates?: number;
+    by_camera?: Record<string, number>;
+    cameras?: string[];
+    events_sealed?: number;
+    tracks_sealed?: number;
+  };
+  created: {
+    incident?: Incident | null;
+    alerts_raised?: number;
+    alerts_already_known?: number;
+    events_attached?: number;
+    watchlist_entry_is_new?: boolean;
+    snapshot?: { id: string; ref: string; item_count: number; sha256: string } | null;
+    verification?: { manifest_intact?: boolean; drift_count?: number } | null;
+  };
+  next_steps: string[];
+  caveats: string[];
+}

@@ -15,6 +15,7 @@ import Login, { consumeTokenFromUrl } from "./routes/Login";
  * on the alert queue should never download either.
  */
 const Dashboard   = lazy(() => import("./routes/Dashboard"));
+const Playbooks   = lazy(() => import("./routes/Playbooks"));
 const Timeline    = lazy(() => import("./routes/Timeline"));
 const Cameras     = lazy(() => import("./routes/Cameras"));
 const CameraView  = lazy(() => import("./routes/CameraView"));
@@ -55,6 +56,7 @@ function Nav() {
     <nav className="side">
       <div className="brand"><b>Setu</b><span>control room</span></div>
       {link("/", "Dashboard")}
+      {link("/playbooks", "Do a job")}
       {link("/timeline", "Timeline", open)}
       {link("/alerts", "Alerts", pending)}
       <div className="nav-group">Watch</div>
@@ -170,6 +172,7 @@ export default function App() {
         <Suspense fallback={<Skeleton rows={8} />}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/playbooks" element={<Playbooks />} />
             <Route path="/timeline" element={<Timeline />} />
             <Route path="/timeline/:eventId" element={<Timeline />} />
             <Route path="/alerts" element={<Alerts />} />

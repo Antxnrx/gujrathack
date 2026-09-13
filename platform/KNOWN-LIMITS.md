@@ -7,23 +7,46 @@ the running system; where a number is a sample, the sample size is given.
 
 ## ANPR
 
-**Accuracy is 33% exact match on nine hand-labelled plates**, and 89% of all
-consensus plates fall in the confidence band that was never once exactly right.
-The console marks those as `low confidence` rather than presenting them as the
-vehicle's identity, but they are still wrong strings on screen. Twenty-four crops
-were exported for labelling and nine were legible to a human; the other fifteen
-were obscured by a pole, blown out by headlights, cropped out of frame, or showed
-only a fragment of a two-row commercial plate. Those are recorded as unreadable
-rather than dropped, because dropping them would quietly inflate the denominator.
+**Accuracy is 67% exact match on fifteen hand-read plates, at 10.1% character
+error.** Forty-eight plate regions were exported magnified and read by eye:
+fifteen were legible, twenty-six were plates too degraded to read, and seven were
+not plates at all. Unreadable crops are recorded rather than dropped, because
+dropping them would quietly inflate the denominator.
 
-Nine is a small sample. It is the honest state of the measurement, not a
-confident estimate, and the next order of business is two hundred.
+The number came *down* from 78% as the set grew from nine plates to fifteen. The
+larger set includes harder cases the first pass had skipped as illegible, so 67%
+is the better estimate and 78% was optimistic. Fifteen is still a small sample.
 
-**Confidence is well calibrated, and that is the more useful property.** Reads
-above 0.5 were exactly right 2/2; reads below 0.3 were right 0/3. An operator can
-be told which plates to act on. A system with higher raw accuracy and no
-calibration is worse in a control room, because nothing distinguishes the good
-reads from the bad ones.
+**Four of the five misses are one character out** — `GJ15CB2936` read as
+`GJ15CB2934`, `GJ11CO5760` as `GJ11CQ5760`. The system is rarely wildly wrong;
+it is usually one glyph out, and O↔Q in a letter position is most of it. At the
+resolutions here a Q's tail is about one pixel, so no model separates them. What
+closes the gap operationally is that search and the watchlist match on confusion
+distance rather than string equality: `plate_similarity` scores `GJ11CO5760`
+against `GJ11CQ5760` at 0.975, well above the 0.90 alert threshold. A wanted
+vehicle is still found; only the displayed string is wrong.
+
+**Detector precision is 85%.** Seven of the forty-eight boxed regions were not
+plates — bus destination boards in Gujarati, an "ALLINDIA PERMIT" sign, operator
+livery reading "SHREE HARI". That is a different failure from an OCR misreading a
+real plate and is counted separately.
+
+**Confidence is well calibrated, and that is the more useful property.** Reads in
+the `actionable` band were exactly right 5/7, `verify` 5/7, `lead` 0/1. An
+operator can be told which plates to act on. A system with higher raw accuracy
+and no calibration is worse in a control room, because nothing distinguishes the
+good reads from the bad ones.
+
+**The OCR has no null output, and that used to reach the screen.** Asked to read
+solid black it answers `A22251` at 0.23 confidence; asked to read noise, `ALEE`
+at 0.49. Every crop yields a string. 34 of 111 tracks therefore carried a
+"registration" that is not one — 20 of them the word UNREADABLE, misspelled,
+which is the model's own admission that it could not read the crop, stored as a
+vehicle's identity across ten cameras. The registration grammar in `ml/rto.py`
+now rejects those: **tracks presented with a non-registration went 34 → 0**, and
+all 77 that keep a plate name an RTO Gujarat has actually issued. The raw string
+survives in `plate_votes.rejected_raw`; only the column an officer acts on is
+cleared.
 
 **Plates are physically unreadable on most of this estate.** Read rate against
 vehicle width in frame:
@@ -46,6 +69,13 @@ whether the region read as a legal plate. Of 2,521 candidates, 24 qualified — 
 every one had been found by more than one detector. There was no pool of plates
 one model sees and another misses, which is the only thing a fine-tune could have
 exploited. Training on 24 images would have overfitted and proved nothing.
+
+**The template can only fix what position makes certain.** `XX00XX0000` fixes
+the character *class* at every position, so a zero read in the series is an O.
+It cannot separate O from Q, or 6 from 4, because both members of those pairs are
+legal in the position. Applying it moved the estate's consistency to 100% and
+moved exact match not at all — the two are different properties and are reported
+separately for that reason.
 
 **Seven of thirty cameras are ANPR-capable**, scored on measured yield and stored
 in `cameras.metadata.anpr` — cam09 leads at 22.3%, and every one of the seven is a
@@ -98,6 +128,32 @@ not a universal one.
 **Derived zones are a starting point, not ground truth.** They come from observed
 traffic and are marked `created_by='derived'`. The Zones editor remains the
 authority and an operator should correct them.
+
+---
+
+## The job layer
+
+**Playbooks compose existing endpoints; they add no capability of their own.**
+`backend/app/routers/playbooks.py` chains the watchlist, the retrospective scan,
+incidents and evidence into four named jobs. Anything a playbook does can be
+done by calling those endpoints directly — deliberately, because a playbook that
+drifted from the endpoint it wraps would make the case file describe work that
+did not happen.
+
+**Four jobs, not a complete doctrine.** Wanted vehicle, scene canvass, follow a
+vehicle and seal for court are the jobs this estate's data can actually support.
+They are not a survey of police work, and a real deployment would add to them.
+
+**The self-contradiction check is within a single canvass only.** A plate
+appearing on two vehicle classes is caught when both fall inside the window being
+canvassed. The same contradiction spread across two separate queries is not
+detected, because nothing compares results between calls.
+
+**Caveats are computed, and can therefore be wrong.** The estate caveats are
+recomputed per call from the cameras and tracks tables rather than written into
+the text, so they follow the data — but the first version of that query joined
+cameras to tracks on `TRUE` and reported sixty thousand cameras. A caveat that
+has gone wrong is worse than none, because it will be believed.
 
 ---
 

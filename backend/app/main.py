@@ -49,7 +49,7 @@ from backend.app import bus, db
 from backend.app.config import settings
 from backend.app.routers import (
     alerts, bookmarks, cameras, detections, dragnet, events, evidence, health,
-    incidents, investigate, live, notes, search, stream, watchlist, zones,
+    incidents, investigate, live, notes, playbooks, search, stream, watchlist, zones,
 )
 
 logging.basicConfig(
@@ -234,6 +234,7 @@ for module in (
     dragnet,       # the reconstruction engine's API
     stream,        # the HLS relay — unified viewer
     live,          # SSE fan-out
+    playbooks,     # the console arranged by the job, not by the data model
 ):
     app.include_router(module.router, prefix="/api")
 

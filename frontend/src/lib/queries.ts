@@ -5,7 +5,8 @@ import { useEffect } from "react";
 import { api } from "./api";
 import { subscribe, EVENTS, ALERTS, PURSUITS } from "./live";
 import type {
-  AlertRow, Camera, EventRow, Facets, Incident, Note, Page, SourceSystem, Tag, TrackRow, Zone,
+  AlertRow, Camera, EventRow, Facets, Incident, Note, Page, PlaybookSpec, SourceSystem, Tag,
+  TrackRow, Zone,
 } from "./types";
 
 /**
@@ -55,6 +56,7 @@ export const keys = {
   pursuit: (id: string) => ["pursuit", id] as const,
   evidence: (p: unknown) => ["evidence", p] as const,
   health: () => ["health"] as const,
+  playbooks: () => ["playbooks"] as const,
 };
 
 const MINUTE = 60_000;
@@ -63,6 +65,15 @@ const MINUTE = 60_000;
 
 export const useHealth = () =>
   useQuery({ queryKey: keys.health(), queryFn: () => api.get<any>("/health"), refetchInterval: 30_000 });
+
+/** The job catalogue. Served rather than hard-coded so the console, the API docs
+ *  and the audit log all name the same set of jobs. It changes only on deploy. */
+export const usePlaybooks = () =>
+  useQuery({
+    queryKey: keys.playbooks(),
+    queryFn: () => api.get<{ playbooks: PlaybookSpec[]; count: number }>("/playbooks"),
+    staleTime: 10 * 60_000,
+  });
 
 export const useEvents = (params: Record<string, unknown>) =>
   useQuery({

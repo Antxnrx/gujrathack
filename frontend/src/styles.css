@@ -429,9 +429,9 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 }
 .trust b { font-size: 13px; letter-spacing: 0.01em; }
 .trust span { color: var(--fg); opacity: 0.75; }
-.trust-actionable { color: var(--ok, #46be92); }
-.trust-verify     { color: var(--warn, #dda451); }
-.trust-lead       { color: var(--dim, #8a99ad); }
+.trust-actionable { color: var(--ok); }
+.trust-verify     { color: var(--warn); }
+.trust-lead       { color: var(--fg-dim); }
 
 /* ── Plate, with its trust ────────────────────────────────────────────────
    A plate reads as a fact, so an unreliable one has to look unreliable. The
@@ -446,17 +446,17 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
   border-radius: 3px;
   white-space: nowrap;
 }
-.plate-actionable .mono { color: var(--ok, #46be92); }
+.plate-actionable .mono { color: var(--ok); }
 .plate-verify .mono { opacity: 0.9; }
-.plate-verify .plate-flag { color: var(--warn, #dda451); border: 1px solid currentColor; }
+.plate-verify .plate-flag { color: var(--warn); border: 1px solid currentColor; }
 .plate-lead .mono { opacity: 0.6; text-decoration: underline dotted currentColor; text-underline-offset: 3px; }
-.plate-lead .plate-flag { color: var(--dim, #8a99ad); border: 1px solid currentColor; }
+.plate-lead .plate-flag { color: var(--fg-dim); border: 1px solid currentColor; }
 
 /* An RTO code that was never issued is a different failure from a weak read:
    the characters may be crisp and the registration still cannot exist. It gets
    the one colour reserved for "this is wrong", regardless of the trust tier. */
 .plate-flag-bad {
-  color: var(--bad, #e06c6c);
+  color: var(--danger);
   border: 1px solid currentColor;
 }
 /* The registering district, shown where there is room for it. Quiet by
@@ -464,6 +464,47 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 .plate-origin {
   font-style: normal;
   font-size: 11px;
-  color: var(--dim, #8a99ad);
+  color: var(--fg-dim);
   white-space: nowrap;
 }
+
+/* ── Playbooks ────────────────────────────────────────────────────────────
+   The job-first entry to the console. Cards are picking a task, not browsing
+   records, so they are sized to be read across the room and there are four of
+   them — few enough that a grid beats a list. */
+.playbook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(248px, 1fr));
+  gap: 12px;
+}
+.playbook-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-1);
+}
+.playbook-card.on { border-color: var(--accent); }
+.playbook-card h3 { margin: 0; font-size: 15px; }
+/* The question is the card's content — it is what the officer matches against,
+   so it carries the weight and the name above it is only a handle. */
+.playbook-q { margin: 0; font-size: 13.5px; line-height: 1.45; }
+.playbook-produces {
+  margin: 0; padding-left: 16px;
+  font-size: 11.5px; color: var(--fg-dim);
+}
+.playbook-card button, .playbook-card .btn { margin-top: auto; text-align: center; }
+
+.playbook-form { padding: 16px; gap: 6px; max-width: 640px; }
+.playbook-form label { font-size: 12px; color: var(--fg-dim); }
+.playbook-form input { width: 100%; }
+.playbook-form p { margin: 2px 0 10px; line-height: 1.5; }
+
+/* Caveats are read before the answer is acted on, so they sit above the rows
+   and are given a colour that stops the eye without shouting. */
+.caveats { border-left: 3px solid var(--warn); padding: 14px 16px; }
+.caveats h4 { margin: 0 0 2px; font-size: 12px; text-transform: uppercase;
+              letter-spacing: 0.06em; color: var(--warn); }
+.caveats p { margin: 0; line-height: 1.55; max-width: 84ch; }
