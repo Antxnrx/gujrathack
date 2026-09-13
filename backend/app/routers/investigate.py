@@ -274,7 +274,7 @@ async def plate_corridor(
 
     The easy case of camera-to-camera investigation, and worth having separately: when
     ANPR got the plate at both ends there is nothing to infer. Consensus plates only —
-    a corridor assembled from single-frame reads at 17.6% accuracy would be a route
+    a corridor assembled from single-frame reads rather than track plates would be a route
     through cameras the vehicle never passed.
 
     Confusion-aware matching is applied on top of the exact lookup, so a hop where one

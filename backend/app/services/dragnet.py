@@ -88,11 +88,19 @@ from ml.analytics.anpr import plate_similarity
 class Anchor:
     """The subject, as the system currently understands it.
 
-    Built from a ``tracks`` row when possible. A track is the consensus of every
-    frame the vehicle appeared in — its plate is 85.2% exact against 17.6% for a
-    single read, and its embedding is the renormalised mean of the member crops
-    rather than one possibly-motion-blurred frame. Seeding a reconstruction from a
-    single detection is supported, and is measurably worse.
+    Built from a ``tracks`` row when possible. A track folds every frame the
+    vehicle appeared in: its plate is the best crop's read, or the vote when no
+    single crop is clearly better, and its embedding is the renormalised mean of
+    the member crops rather than one possibly-motion-blurred frame. Measured
+    against fifteen plates read by eye, the track-level plate is 67% exact at
+    10.1% character error; a single frame's read has no such measurement and is
+    not the system's answer. Seeding a reconstruction from one detection is
+    supported and is weaker evidence.
+
+    (An earlier version of this docstring claimed 85.2% against 17.6%. Those
+    figures came from ``scripts/score_anpr.py`` run over *synthetic* tracks where
+    the seeder knew the answer — they measured the voting algorithm against a
+    simulated error model, not ANPR against a road.)
     """
 
     camera_id: str
@@ -371,7 +379,7 @@ def _plate_lr(anchor: Anchor, cand_plate: Optional[str], cand_conf: float) -> di
 
     if sim >= 0.999:
         return {"lr": exact_lr, "verdict": "exact", "similarity": 1.0,
-                "calibration": "empirical (85.2% consensus exact accuracy)"}
+                "calibration": "empirical (67% exact on 15 hand-read plates)"}
     if sim >= floor:
         # Interpolate in log space from no evidence at the floor to full exact-match
         # evidence at identity. Linear interpolation of the ratio itself would give a

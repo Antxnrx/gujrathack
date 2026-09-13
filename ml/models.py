@@ -98,10 +98,13 @@ def get_plate_ocr():
     """The plate OCR, as a backend that owns its own preprocessing.
 
     Which one is chosen matters more than any other single setting in the plate
-    path. Measured head to head on this estate's crops against plates read by a
-    human, the India-specific model reads 78% of them exactly where the global
-    model reads 33%. ``ml/ocr.py`` carries the comparison and the fallback
-    behaviour; both run on CPU, because the GPU belongs to YOLO and CLIP.
+    path. Measured head to head on the nine hand-read plates the comparison was
+    run against, the India-specific model read 78% of them exactly where the
+    global model read 33%. That gap is why this backend is the default; the
+    absolute number is not the system's accuracy, which is 67% on the larger
+    fifteen-plate set (``scripts/score_plate_truth.py``). ``ml/ocr.py`` carries
+    the comparison and the fallback behaviour; both run on CPU, because the GPU
+    belongs to YOLO and CLIP.
     """
     global _plate_ocr
     with _ocr_lock:

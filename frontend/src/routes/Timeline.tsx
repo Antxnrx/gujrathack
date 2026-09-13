@@ -231,7 +231,7 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
               <dt>Seen</dt><dd>{hhmmss(track.first_seen)} → {hhmmss(track.last_seen)} ({dur(track.duration_s)})</dd>
               <dt>Frames</dt><dd>{num(track.detection_count)}</dd>
               {/* Consensus, not a single read: the measured single-read exact rate on this
-                  footage is 17.6%, and the vote across a track is what makes a plate
+                  footage has no standalone measurement, and the fold across a track is what makes a plate
                   usable at all. The read count is shown because it is the evidence. */}
               <dt>Plate</dt>
               <dd>{track.plate_text ? <Plate text={track.plate_text} trust={track.plate_trust}

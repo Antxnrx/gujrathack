@@ -160,7 +160,7 @@ async def get_alert(alert_id: str, _: Operator = Depends(current_operator)) -> d
 
     # Every read of the same plate on the same track, so an operator can judge the
     # consensus rather than trust one frame. scripts/score_anpr.py measured
-    # single-read exact accuracy at 17.6% — one read is not evidence.
+    # one frame's read is not an identification — the track's folded plate is.
     reads = []
     if row.get("track_uuid"):
         reads = await db.fetch(

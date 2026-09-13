@@ -156,7 +156,7 @@ export function PlateVote(
           <b>{trust.label}</b>
           <span className="tiny">{trust.guidance}</span>
           <span className="tiny faint">
-            measured: {trust.measured} · nine hand-read plates
+            measured: {trust.measured} · fifteen hand-read plates
           </span>
         </div>
       )}

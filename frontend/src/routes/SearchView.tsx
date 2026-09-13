@@ -185,8 +185,9 @@ export default function SearchView() {
           {meta.plate_mode === "fuzzy" && (
             <span className="tiny faint">
               No exact consensus match, so these are trigram-near reads — one or two OCR
-              confusions away. Single-read exact accuracy on this footage is 17.6% against
-              85.2% for the consensus plate, which is why fuzzy exists rather than an empty result.
+              confusions away. The reader is 67% exact on hand-read plates and four of its five
+              misses are one character, so an exact-only search would answer "never seen" for a
+              vehicle it had in fact recorded.
             </span>
           )}
         </div>

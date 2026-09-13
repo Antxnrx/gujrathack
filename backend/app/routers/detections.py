@@ -20,11 +20,12 @@ Multi-frame ANPR (12) lives on the track: ``plate_text`` there is the consensus 
 entitled to see how the machine got there.
 
 It also returns a **trust tier**, because a confidence number on its own does not
-tell an operator what to do. Measured against plates read by a human
-(``scripts/export_plate_labels.py``, nine legible crops): reads above 0.5 were
-exact 2/2, reads below 0.3 were exact 0/3, and overall exact match was 33%. The
-accuracy is modest; the calibration is the useful part, and ``ml/plate_trust.py``
-turns it into act-on / verify / lead-only so every surface says the same thing.
+tell an operator what to do. Measured against fifteen plates read by eye
+(``scripts/export_plate_sheets.py`` and ``scripts/score_plate_truth.py``): exact
+match 67%, character error 10.1%, and by trust band actionable 5/7, verify 5/7,
+lead 0/1. The accuracy is modest; the calibration is the useful part, and
+``ml/plate_trust.py`` turns it into act-on / verify / lead-only so every surface
+says the same thing.
 
 An earlier version of this docstring quoted 17.6% single-read against 85.2%
 consensus. Those came from ``scripts/score_anpr.py`` run over *synthetic* tracks,

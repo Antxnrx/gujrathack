@@ -18,8 +18,9 @@ opaque weight:
 ``plate``
     Derived from the same plate being read at A and then at B. This is a real
     observation of a real route, with a real transit-time distribution. Strong, but
-    only exists where ANPR fired — and single-read plate accuracy is 17.6%, so it is
-    built from ``tracks`` (consensus plates), never from raw detections.
+    only exists where ANPR fired — and it is built from ``tracks``, never from raw
+    detections, because a track's plate is the folded answer over every frame the
+    vehicle was visible for and a single frame's read is not an identification.
 
 ``confirmed``
     An operator said so. Never overwritten by either of the above.
@@ -169,8 +170,9 @@ async def rebuild(include_geo: bool = True, include_plates: bool = True) -> dict
         tag_plate = await db.execute(
             """
             WITH sightings AS (
-                -- Consensus plates only. Frame-level reads at 17.6% exact accuracy
-                -- would manufacture transitions between cameras a vehicle never
+                -- Track-level plates only. A single frame's read is not an
+                -- identification; building edges from raw detections would
+                -- manufacture transitions between cameras a vehicle never
                 -- visited, and the graph would then confidently predict them.
                 SELECT t.plate_text, t.camera_id, t.first_seen, t.last_seen
                 FROM tracks t

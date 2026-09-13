@@ -65,10 +65,12 @@ class Settings(BaseSettings):
     # are AGPL-3.0.
     plate_model: str = "Koushim/yolov8-license-plate-detection/best.pt"
     # Which OCR reads the plate. "awiros" is the India-specific PP-OCRv5 model
-    # and is markedly better on this estate — 78% exact against human-read plates
-    # versus 33% for the global model. It needs PaddlePaddle plus the PaddleOCR
-    # sources, so "fast" remains the fallback for a deployment that cannot take
-    # that dependency.
+    # and is markedly better on this estate: on the nine plates the two were
+    # compared over, 78% exact against 33% for the global model. That gap is the
+    # reason for the default; the system's own accuracy is 67% on the larger
+    # fifteen-plate set. It needs PaddlePaddle plus the PaddleOCR sources, so
+    # "fast" remains the fallback for a deployment that cannot take that
+    # dependency.
     plate_ocr_backend: str = "awiros"
     awiros_weights: str = "artifacts/awiros/model.safetensors"
     awiros_dict: str = "artifacts/awiros/en_dict.txt"
