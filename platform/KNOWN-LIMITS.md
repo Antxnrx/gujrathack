@@ -7,7 +7,10 @@ the running system; where a number is a sample, the sample size is given.
 
 ## ANPR
 
-**Accuracy is 33% exact match on nine hand-labelled plates.** Twenty-four crops
+**Accuracy is 33% exact match on nine hand-labelled plates**, and 89% of all
+consensus plates fall in the confidence band that was never once exactly right.
+The console marks those as `low confidence` rather than presenting them as the
+vehicle's identity, but they are still wrong strings on screen. Twenty-four crops
 were exported for labelling and nine were legible to a human; the other fifteen
 were obscured by a pole, blown out by headlights, cropped out of frame, or showed
 only a fragment of a two-row commercial plate. Those are recorded as unreadable
@@ -97,14 +100,19 @@ authority and an operator should correct them.
 
 ## Platform
 
-**Model 1's recorded stream resolution is wrong.** It says `1920x1080`; several
-cameras decode at `854x480`. The registry's own enrichment endpoint would fix
-this by reading the stream, but it needs a Sentinel session cookie configured in
-Model 1's environment, which is currently unset.
+**The upstream session expires, and nothing refreshes it mid-run.** Both the
+indexer and the registry's enrichment authenticate with a session cookie that has
+a limited life, so a long batch run can begin succeeding and end in `403` — as
+one did, part-way through indexing cam19. `scripts/refresh_sentinel_credential.py`
+in the registry refreshes it in one place, but it has to be run; nothing detects
+the expiry and re-authenticates on its own.
 
-**The upstream session expires.** Both the indexer and the registry's enrichment
-authenticate with a session cookie that has a limited life. A long batch run can
-begin succeeding and end in `403`, as one did. Nothing refreshes it mid-run yet.
+**Resolutions are now read from the streams, not asserted.** The registry used to
+record every camera as `1920x1080`. With a current session it probes the manifest
+and the truth is a mixture — `854x480`, `1920x1080`, `1280x960`, `1280x720`,
+`960x576`, `640x480`, at frame rates from 10 to 30 fps. That heterogeneity is the
+measured reason a handful of cameras support ANPR and most do not, and it is now
+visible in the registry rather than inferred from the crops.
 
 **The SSE token travels in a query string.** `EventSource` cannot set request
 headers, so the live stream takes `?access_token=`. Query strings reach access
