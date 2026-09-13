@@ -39,6 +39,11 @@ class BackendSettings(BaseSettings):
     # refused when `require_auth` is on, so a deployment cannot fall into it by
     # forgetting to set a variable.
     model1_base_url: str = ""
+    # Where an operator reaches Model 1's own portal, as opposed to its API. The
+    # console links to it so the two halves feel like one product; it is a
+    # separate setting because the API and the portal are separate deployments
+    # and only coincidentally on the same host in development.
+    model1_portal_url: str = ""
     model1_jwks_url: str = ""
     model1_api_key: str = ""
     model1_audience: str = "setu"

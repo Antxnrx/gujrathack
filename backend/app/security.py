@@ -107,13 +107,38 @@ def _decode(token: str) -> dict:
 
 
 def _operator_from_claims(claims: dict) -> Operator:
-    roles = claims.get("roles") or claims.get("permissions") or []
-    if isinstance(roles, str):
-        roles = [r.strip() for r in roles.split(",") if r.strip()]
+    """Map Model 1's token claims onto the roles this service checks.
+
+    Model 1 issues ``role`` (a single string, e.g. ``super_admin``) alongside
+    ``scopes`` (a list, e.g. ``["admin", "cameras:read", "cameras:write"]``).
+    This previously read only ``roles``/``permissions``, neither of which Model 1
+    sends — so every authenticated operator arrived with an empty role list and
+    was refused by every ``require_role`` endpoint, including a super admin.
+    The symptom was a 403 reading "Requires role 'admin'" for a token that
+    plainly carried ``admin`` in its scopes.
+
+    All four spellings are accepted. ``scopes`` is the load-bearing one, because
+    it is where Model 1 puts the permission vocabulary this service's ``can()``
+    is written against; ``role`` is carried too so that the operator's rank is
+    recorded on audit rows even when it grants nothing extra.
+    """
+    def _as_list(value) -> list[str]:
+        if not value:
+            return []
+        if isinstance(value, str):
+            return [v.strip() for v in value.split(",") if v.strip()]
+        return [str(v) for v in value]
+
+    roles: list[str] = []
+    for key in ("scopes", "roles", "permissions", "role"):
+        for item in _as_list(claims.get(key)):
+            if item not in roles:
+                roles.append(item)
+
     return Operator(
         subject=str(claims.get("sub") or claims.get("uid") or "unknown"),
         name=str(claims.get("name") or claims.get("preferred_username") or ""),
-        roles=list(roles),
+        roles=roles,
         kind="operator",
         district=claims.get("district"),
     )
@@ -213,6 +238,7 @@ async def model1_health() -> dict:
             # analytics layer. That requires it to know where Model 1 is, and the
             # base URL is not a secret — the JWKS it serves is public by design.
             "base_url": settings.model1_base_url.rstrip("/"),
+            "portal_url": settings.model1_portal_url.rstrip("/"),
             "requires_auth": settings.require_auth,
         }
     except Exception as exc:

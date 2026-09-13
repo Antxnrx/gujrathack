@@ -68,7 +68,35 @@ function Nav() {
       {link("/incidents", "Incidents")}
       {link("/evidence", "Evidence")}
       {link("/saved", "Saved")}
+      <RegistryLink />
     </nav>
+  );
+}
+
+/**
+ * Out to the registry.
+ *
+ * The estate this console reasons over is owned by Model 1 — camera identity,
+ * department, location and stream address all come from there, and anything an
+ * operator wants to *change* about a camera is changed there too. Leaving them
+ * to find that themselves would be the wrong kind of separation: two systems on
+ * one account should feel like two halves, not two products.
+ *
+ * The URL is whatever the API reports it is talking to, so this follows the
+ * deployment rather than a build-time constant.
+ */
+function RegistryLink() {
+  const health = useHealth();
+  const base = health.data?.checks?.model1?.portal_url;
+  if (!base) return null;
+  return (
+    <>
+      <div className="nav-group">Estate</div>
+      <a className="nav-link" href={base} target="_blank" rel="noreferrer"
+         title="Camera registry — onboarding, coverage, health and GIS">
+        <span className="lbl">Registry ↗</span>
+      </a>
+    </>
   );
 }
 
