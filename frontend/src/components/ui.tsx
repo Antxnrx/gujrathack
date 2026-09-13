@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../lib/api";
 import { hhmmss, titleCase } from "../lib/format";
-import type { Severity, Tag } from "../lib/types";
+import type { RegistrationCheck, Severity, Tag } from "../lib/types";
 
 /** Small pieces used everywhere. Kept in one file because each is under twenty lines
  *  and a directory of twelve one-component files costs more to navigate than it saves. */
@@ -228,6 +228,74 @@ export function SceneDiagram(
         <span className="scene-key"><i className="k-path" /> subject path · {pts.length} points</span>
       </figcaption>
     </figure>
+  );
+}
+
+/**
+ * The plate checked against the vehicle it is registered to.
+ *
+ * The record is the obvious half. The findings are the half worth the feature: a
+ * registration cannot change category, so a motorcycle's number read off a truck
+ * is a cloned plate, not a misreading — and nothing in the footage alone can
+ * establish that. Findings lead, sorted hardest first, because an operator
+ * scanning this panel is looking for the reason to act.
+ *
+ * When no register is configured this renders the reason rather than an empty
+ * box or an error. That is the normal state of a force that has not yet been
+ * granted VAHAN access, and it is not a fault they can fix from this screen.
+ */
+export function RegistrationCheckPanel({ check }: { check: RegistrationCheck | undefined }) {
+  if (!check) return null;
+  if (!check.available) {
+    return (
+      <section className="card reg-check">
+        <header><h4 className="grow">Vehicle register</h4><span className="pill">not connected</span></header>
+        <div className="body small dim">{check.reason}</div>
+      </section>
+    );
+  }
+  const r = check.registration;
+  const rank = { critical: 0, high: 1, medium: 2, low: 3, info: 4 } as const;
+  const findings = [...check.findings].sort(
+    (a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  return (
+    <section className="card reg-check">
+      <header>
+        <h4 className="grow">Vehicle register</h4>
+        {!r?.authoritative && <span className="pill warn">not authoritative</span>}
+        <span className="tiny faint">{check.provider}</span>
+      </header>
+      <div className="body col" style={{ gap: 10 }}>
+        {findings.map((f, i) => (
+          <div key={i} className={`finding sev-${f.severity}`}>
+            <b>{f.kind.replace(/_/g, " ")}</b>
+            {(f.observed || f.registered) && (
+              <div className="tiny mono">
+                filmed <i>{f.observed ?? "—"}</i> · registered <i>{f.registered ?? "—"}</i>
+              </div>
+            )}
+            <div className="small">{f.means}</div>
+          </div>
+        ))}
+        {r && (
+          <dl className="kv">
+            {r.maker && <><dt>Vehicle</dt><dd>{[r.maker, r.model].filter(Boolean).join(" ")}</dd></>}
+            {r.vehicle_class && <><dt>Class</dt><dd>{r.vehicle_class}</dd></>}
+            {r.colour && <><dt>Colour</dt><dd>{r.colour}</dd></>}
+            {r.fuel && <><dt>Fuel</dt><dd>{r.fuel}</dd></>}
+            {r.registered_on && <><dt>Registered</dt><dd>{r.registered_on}</dd></>}
+            {r.rto_name && <><dt>Issuing RTO</dt><dd>{r.rto_name}</dd></>}
+            {r.status && <><dt>Status</dt><dd>{r.status}</dd></>}
+          </dl>
+        )}
+        {check.plate_trust && check.plate_trust.tier !== "actionable" && (
+          <p className="tiny warn-text">
+            This check rests on a plate the console marks “{check.plate_trust.label}”.
+            Confirm the characters against the crop before acting on any mismatch.
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 

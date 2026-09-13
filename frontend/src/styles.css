@@ -571,3 +571,24 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 .scene-key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .scene-key .k-zone { background: rgba(251,191,36,0.35); border: 1px solid var(--warn); }
 .scene-key .k-path { background: var(--accent); }
+
+
+/* ── Register check ───────────────────────────────────────────────────────
+   Findings lead and are colour-coded by what they mean operationally: a class
+   mismatch is a cloned plate and gets the one colour reserved for "act on
+   this"; a colour mismatch is usually a repaint or our own classifier and must
+   not compete with it. */
+.reg-check .finding { border-left: 3px solid var(--line); padding: 6px 0 6px 10px; }
+.reg-check .finding b { text-transform: capitalize; font-size: 12.5px; }
+.reg-check .finding i { font-style: normal; color: var(--fg); }
+.reg-check .finding .tiny { color: var(--fg-faint); margin: 2px 0 3px; }
+.reg-check .sev-critical { border-left-color: var(--critical); }
+.reg-check .sev-critical b { color: var(--critical); }
+.reg-check .sev-high     { border-left-color: var(--danger); }
+.reg-check .sev-high b   { color: var(--danger); }
+.reg-check .sev-medium   { border-left-color: var(--warn); }
+.reg-check .sev-medium b { color: var(--warn); }
+.reg-check .sev-low      { border-left-color: var(--fg-faint); }
+.reg-check .sev-info     { border-left-color: var(--ok); }
+.reg-check .sev-info b   { color: var(--ok); }
+.warn-text { color: var(--warn); }

@@ -38,11 +38,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.app import db, storage
-from backend.app.common import as_uuid, paginate, window
+from backend.app.common import as_uuid, audit, paginate, window
 from backend.app.security import Operator, current_operator
+from backend.app.services import vahan
 
 # The analytics layer owns the plate vocabulary — what a legal plate is, when one
 # looks truncated, and what a confidence band means. The API reads those rules
@@ -272,4 +275,65 @@ async def plate_reads(track_id: str, _: Operator = Depends(current_operator)) ->
         "agreement": (
             round(distinct.get(track["plate_text"], 0) / len(reads), 3) if reads else None
         ),
+    }
+
+
+@router.get("/tracks/{track_id}/registration")
+async def track_registration(
+    track_id: str, operator: Operator = Depends(current_operator),
+) -> dict:
+    """What this plate is registered to, and whether the footage agrees with it.
+
+    Two answers in one call, because they are only useful together. The record
+    fills in the vehicle an officer has to name in a case file; the comparison
+    says whether the vehicle in the footage is that vehicle. The second is the
+    one that finds a cloned plate — a registration cannot change category, so a
+    motorcycle's number read off a truck is not a misreading of anything.
+
+    Returns ``available: false`` with a reason rather than an error when no
+    authorised register is configured, because that is the normal state of a
+    deployment that has not yet been granted VAHAN access, and it is not a fault
+    an operator can do anything about.
+    """
+    tid = as_uuid(track_id, "track id")
+    track = await db.fetchrow(
+        "SELECT t.*, c.external_id AS camera_external_id FROM tracks t "
+        "JOIN cameras c ON c.id = t.camera_id WHERE t.id = $1", tid)
+    if track is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such track")
+    if not track.get("plate_text"):
+        return {"available": False,
+                "reason": "This track has no plate to look up.",
+                "registration": None, "findings": []}
+
+    row = dict(track)
+    storage.attach_appearance([row])
+
+    provider = vahan.build()
+    ok, why = provider.available()
+    if not ok:
+        return {"available": False, "reason": why, "provider": provider.name,
+                "plate": row["plate_text"], "registration": None, "findings": []}
+
+    record = provider.lookup(row["plate_text"])
+    if record is None:
+        return {"available": False,
+                "reason": "The register did not answer. Try again shortly.",
+                "provider": provider.name, "plate": row["plate_text"],
+                "registration": None, "findings": []}
+
+    findings = vahan.compare(row, record)
+    await audit(operator, "registration.lookup", target=str(tid),
+                plate=row["plate_text"], provider=provider.name,
+                findings=[f.kind for f in findings])
+    return {
+        "available": True,
+        "provider": provider.name,
+        "plate": row["plate_text"],
+        "registration": asdict(record),
+        "findings": [asdict(f) for f in findings],
+        # The plate itself is only as good as the read behind it. A critical
+        # mismatch resting on a plate the console already marks "verify first"
+        # is a reason to re-read the crop, not to dispatch.
+        "plate_trust": row.get("plate_trust"),
     }

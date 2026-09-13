@@ -51,6 +51,16 @@ class BackendSettings(BaseSettings):
     jwks_cache_seconds: int = 600
     require_auth: bool = False
 
+    # ── Vehicle register (VAHAN) ────────────────────────────────────────────
+    # Empty by default, and the lookup stays disabled until both are set.
+    # Authorised VAHAN access is granted by MoRTH/NIC to an enforcement agency
+    # on written application under the National Transport Repository
+    # data-sharing policy — it is issued to the force, not obtained by the
+    # application. See backend/app/services/vahan.py for why API Setu's public
+    # RC endpoint cannot substitute.
+    vahan_base_url: str = ""
+    vahan_api_key: str = ""
+
     # ── Object storage (thumbnails, evidence) ───────────────────────────────
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "setu"

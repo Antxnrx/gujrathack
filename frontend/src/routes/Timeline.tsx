@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  useAddNote, useApplyTags, useEvent, useEvents, useIncidents, useAddIncidentEvents,
-  useRemoveTag, useToggleBookmark, useTriage,
+  useAddIncidentEvents, useAddNote, useApplyTags, useEvent, useEvents, useIncidents, useRegistration, useRemoveTag, useToggleBookmark, useTriage,
 } from "../lib/queries";
 import { ago, dur, fullStamp, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
 import { CameraSelect, EventTypeSelect, StatusSelect, TagSelect, useDebounced } from "../components/Filters";
 import { VirtualList } from "../components/VirtualList";
 import {
-  Empty, ErrorBox, Modal, Pager, Pill, Plate, SceneDiagram, SevDot, Skeleton, Status, Thumb,
+  Empty, ErrorBox, Modal, Pager, Pill, Plate, RegistrationCheckPanel, SceneDiagram, SevDot,
+  Skeleton, Status, Thumb,
 } from "../components/ui";
 import { useReport } from "../components/Toasts";
 import type { EventRow } from "../lib/types";
@@ -161,6 +161,13 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
   const [note, setNote] = useState("");
   const [tagText, setTagText] = useState("");
   const [promoting, setPromoting] = useState(false);
+  // Above the early returns, and reading through `q.data?` deliberately. Hooks
+  // must run in the same order on every render; calling this after the loading
+  // guard meant it ran on the loaded render and not the loading one, which is
+  // "Rendered more hooks than during the previous render" and took the whole
+  // event detail pane down. It is disabled internally until there is a plate.
+  const detailTrack = q.data?.track;
+  const registration = useRegistration(detailTrack?.id, detailTrack?.plate_text);
 
   if (q.isLoading) return <Skeleton rows={8} />;
   if (q.isError) return <div style={{ padding: 12 }}><ErrorBox error={q.error} what="Event" /></div>;
@@ -241,6 +248,12 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
       )}
 
       {track && (
+        <>
+        {/* What the plate is registered to, and whether the footage agrees.
+            Placed above the track card because a cloned-plate finding changes
+            what the rest of the panel means. */}
+        <RegistrationCheckPanel check={registration.data} />
+
         <section className="card">
           <header>
             <h4 className="grow">Vehicle track</h4>
@@ -263,6 +276,7 @@ function Detail({ id, onTriaged }: { id: string; onTriaged: () => void }) {
             </dl>
           </div>
         </section>
+        </>
       )}
 
       <section className="card">

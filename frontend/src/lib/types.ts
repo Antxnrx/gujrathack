@@ -291,3 +291,45 @@ export interface PlaybookResult {
   next_steps: string[];
   caveats: string[];
 }
+
+
+/* ── Vehicle register ──────────────────────────────────────────────────────
+   The plate checked against what it is registered to. `available: false` with a
+   reason is the normal state of a deployment that has not been granted VAHAN
+   access yet — not an error, and not something an operator can fix. */
+
+export interface RegistrationRecord {
+  plate: string;
+  maker: string | null;
+  model: string | null;
+  vehicle_class: string | null;
+  colour: string | null;
+  fuel: string | null;
+  registered_on: string | null;
+  rto_name: string | null;
+  status: string | null;
+  insurance_upto: string | null;
+  pucc_upto: string | null;
+  source: string;
+  /** False means this did not come from an authorised register. Never present
+   *  such a record as a fact about a real vehicle. */
+  authoritative: boolean;
+}
+
+export interface RegistrationFinding {
+  kind: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  observed: string | null;
+  registered: string | null;
+  means: string;
+}
+
+export interface RegistrationCheck {
+  available: boolean;
+  reason?: string;
+  provider?: string;
+  plate?: string;
+  registration: RegistrationRecord | null;
+  findings: RegistrationFinding[];
+  plate_trust?: { tier: string; label: string; guidance: string } | null;
+}

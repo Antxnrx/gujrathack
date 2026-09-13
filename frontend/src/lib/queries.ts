@@ -5,8 +5,8 @@ import { useEffect } from "react";
 import { api } from "./api";
 import { subscribe, EVENTS, ALERTS, PURSUITS } from "./live";
 import type {
-  AlertRow, Camera, EventRow, Facets, Incident, Note, Page, PlaybookSpec, SourceSystem, Tag,
-  TrackRow, Zone,
+  AlertRow, Camera, EventRow, Facets, Incident, Note, Page, PlaybookSpec, RegistrationCheck,
+  SourceSystem, Tag, TrackRow, Zone,
 } from "./types";
 
 /**
@@ -57,6 +57,7 @@ export const keys = {
   evidence: (p: unknown) => ["evidence", p] as const,
   health: () => ["health"] as const,
   playbooks: () => ["playbooks"] as const,
+  registration: (id: string) => ["registration", id] as const,
 };
 
 const MINUTE = 60_000;
@@ -73,6 +74,16 @@ export const usePlaybooks = () =>
     queryKey: keys.playbooks(),
     queryFn: () => api.get<{ playbooks: PlaybookSpec[]; count: number }>("/playbooks"),
     staleTime: 10 * 60_000,
+  });
+
+/** What a plate is registered to, and whether the footage agrees.
+ *  Disabled until a track has a plate — there is nothing to look up otherwise. */
+export const useRegistration = (trackId?: string, plate?: string | null) =>
+  useQuery({
+    queryKey: keys.registration(trackId ?? ""),
+    queryFn: () => api.get<RegistrationCheck>(`/tracks/${trackId}/registration`),
+    enabled: Boolean(trackId && plate),
+    staleTime: 5 * 60_000,
   });
 
 export const useEvents = (params: Record<string, unknown>) =>

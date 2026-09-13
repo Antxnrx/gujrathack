@@ -564,3 +564,79 @@ def test_splitter_handles_the_degenerate_inputs():
     from ml.analytics.tracks import _split_on_gaps
     assert _split_on_gaps([]) == []
     assert len(_split_on_gaps([_at(0)])) == 1
+
+
+# ── Plate against paperwork ──────────────────────────────────────────────────
+# The register is authoritative about what a plate *is*. Comparing it to what was
+# filmed is how a cloned plate is found: a registration cannot change category,
+# so a motorcycle's number on a truck is not a misread colour.
+
+def _reg(**kw):
+    from backend.app.services.vahan import Registration
+    base = dict(plate="GJ11CO5760", maker="MARUTI SUZUKI", model="S-CROSS",
+                vehicle_class="MOTOR CAR", colour="WHITE", rto_name="Junagadh",
+                status="ACTIVE", source="vahan", authoritative=True)
+    base.update(kw)
+    return Registration(**base)
+
+
+def test_a_motorcycles_plate_on_a_truck_is_critical():
+    """The cloned-plate signal, and the reason this feature is worth building."""
+    from backend.app.services.vahan import compare
+    f = compare({"plate_text": "GJ11CO5760", "class": "truck", "dominant_color": "white"},
+                _reg(vehicle_class="M-CYCLE/SCOOTER"))
+    clash = [x for x in f if x.kind == "class_mismatch"]
+    assert clash and clash[0].severity == "critical"
+    assert "cloned" in clash[0].means
+
+
+def test_our_own_uncertainty_downgrades_the_conflict():
+    """When the console had already marked its class contested, the disagreement
+    is probably ours — an operator should not be sent out on it."""
+    from backend.app.services.vahan import compare
+    f = compare({"plate_text": "GJ11CO5760", "class": "truck",
+                 "dominant_color": "white", "class_uncertain": True},
+                _reg(vehicle_class="M-CYCLE/SCOOTER"))
+    clash = [x for x in f if x.kind == "class_mismatch"][0]
+    assert clash.severity == "medium"
+    assert "ours rather than the vehicle's" in clash.means
+
+
+def test_regulatory_and_visual_vocabularies_are_reconciled():
+    """VAHAN says LMV, the detector says car. Not a mismatch."""
+    from backend.app.services.vahan import compare
+    f = compare({"plate_text": "GJ11CO5760", "class": "car", "dominant_color": "white"},
+                _reg(vehicle_class="LMV"))
+    assert [x.kind for x in f] == ["consistent"]
+
+
+def test_neighbouring_colours_are_not_a_finding():
+    """Silver and white are one another under a sodium lamp."""
+    from backend.app.services.vahan import compare
+    f = compare({"plate_text": "GJ11CO5760", "class": "car", "dominant_color": "silver"},
+                _reg(colour="WHITE"))
+    assert not [x for x in f if x.kind == "colour_mismatch"]
+
+
+def test_an_unregistered_plate_says_check_the_crop_first():
+    from backend.app.services.vahan import compare
+    f = compare({"plate_text": "GJ11CO5760", "class": "car"}, _reg(status="NOT_FOUND"))
+    assert f[0].kind == "not_registered"
+    assert "misread" in f[0].means
+
+
+def test_a_suspended_registration_is_raised_on_its_own():
+    from backend.app.services.vahan import compare
+    f = compare({"plate_text": "GJ11CO5760", "class": "car", "dominant_color": "white"},
+                _reg(status="SUSPENDED"))
+    assert [x for x in f if x.kind == "registration_status"][0].severity == "high"
+
+
+def test_nothing_is_invented_without_an_authorised_source():
+    """The offline provider returns no record at all. A fabricated owner on a
+    police screen is worse than an empty panel."""
+    from backend.app.services.vahan import Unconfigured
+    p = Unconfigured()
+    assert p.lookup("GJ11CO5760") is None
+    ok, why = p.available()
+    assert ok is False and "MoRTH" in why
