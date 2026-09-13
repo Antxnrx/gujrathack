@@ -72,6 +72,7 @@ status() {
 
 stop_all() {
   head_ "Stopping"
+  pkill -f "ml.analytics.service" >/dev/null 2>&1 && say "stopped the analytics fold"
   for port in 5173 8001 3000 8000; do
     pid=$(lsof -ti tcp:"$port" 2>/dev/null || true)
     [ -n "$pid" ] && kill $pid 2>/dev/null && say "stopped :$port"
@@ -118,6 +119,20 @@ wait_for http://localhost:3000/ "registry portal :3000" 90
 if ! port_up 5173; then
   start_bg "$M2/frontend" /tmp/setu-m2-web.log node node_modules/vite/bin/vite.js --port 5173; fi
 wait_for http://localhost:5173/ "control-room console :5173" 90
+
+# The fold. Detections are written by the inference worker; this is what turns
+# them into tracks and events, and without it a live feed fills the database and
+# the timeline stays empty. It has no port to wait on, so it is checked by
+# process name.
+if ! pgrep -f "ml.analytics.service" >/dev/null 2>&1; then
+  start_bg "$M2" /tmp/setu-analytics.log .venv/bin/python -m ml.analytics.service
+  sleep 1
+fi
+if pgrep -f "ml.analytics.service" >/dev/null 2>&1; then
+  ok "analytics fold (every 60s)"
+else
+  bad "analytics fold did not start — see /tmp/setu-analytics.log"
+fi
 
 head_ "Open"
 say "Control room   http://localhost:5173"

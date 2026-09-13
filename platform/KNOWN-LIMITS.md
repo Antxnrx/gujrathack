@@ -167,12 +167,28 @@ has gone wrong is worse than none, because it will be believed.
 
 ## Platform
 
-**The upstream session expires, and nothing refreshes it mid-run.** Both the
+**The upstream session expires, and the indexer now signs back in.** Both the
 indexer and the registry's enrichment authenticate with a session cookie that has
-a limited life, so a long batch run can begin succeeding and end in `403` — as
-one did, part-way through indexing cam19. `scripts/refresh_sentinel_credential.py`
-in the registry refreshes it in one place, but it has to be run; nothing detects
-the expiry and re-authenticates on its own.
+a limited life, so a long batch run could begin succeeding and end in `403` — as
+one did, part-way through indexing cam19. `ml/stream.py` now treats 401 and 403
+as "sign in again" rather than "fail", on the manifest, the AES key and the
+segment fetch alike, and retries once with a fresh cookie. A fresh cookie that is
+also refused is reported rather than retried: that is the credential's problem,
+and hammering the login endpoint would turn it into an outage of our own making.
+
+The registry's own enrichment still needs `scripts/refresh_sentinel_credential.py`
+run by hand.
+
+**The gateway serves recorded footage, not a live edge.** Its playlists are
+`#EXT-X-PLAYLIST-TYPE:VOD` — 4,306 segments, twelve hours, terminated with an
+ENDLIST. Everything in this system that says "live" means "relayed on demand from
+the archive". The player reads the playlist and labels it `recorded` accordingly,
+and will say `live` by itself the day a genuinely live feed arrives.
+
+**The fold must be running for anything to appear.** `ml/analytics/service.py`
+turns detections into tracks and events every 60 seconds. `platform/run.sh`
+starts it; a deployment that does not will fill its database and show an empty
+timeline, with no error anywhere to explain it.
 
 **Resolutions are now read from the streams, not asserted.** The registry used to
 record every camera as `1920x1080`. With a current session it probes the manifest
