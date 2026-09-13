@@ -269,6 +269,53 @@ def ground_points(path_raw) -> list[tuple[float, float]]:
     return out
 
 
+# Zone-scoped rules. An event of one of these types *is* a statement about a
+# zone — without the geometry it cannot be explained to an operator, re-checked,
+# or regenerated.
+_ZONE_SCOPED = ("zone_intrusion", "wrong_way")
+
+
+def prune_orphaned_zone_events(conn, dry_run: bool = False) -> int:
+    """Delete zone events whose zone no longer exists.
+
+    Re-deriving zones used to double the timeline, and it took a while to see
+    why. ``--replace`` deletes the derived zones in bulk; the ``events.zone_id``
+    FK nulls the reference but keeps the row, exactly as the zones API intends
+    when an *operator* removes one zone (the event survives its zone, having
+    lost the geometry that explains it). Then this script recreates the same
+    carriageway under a fresh id, the rules fire on the same tracks, and every
+    intrusion exists twice — once orphaned, once live, identical in the UI down
+    to the timestamp and the metrics.
+
+    On this estate that was 30 of 82 events: every single zone_intrusion and
+    wrong_way event was on the timeline twice.
+
+    An operator deleting one zone is a different act from a re-derivation, so
+    the API's behaviour is left alone and the cleanup lives here. Events someone
+    has already acted on are kept even when orphaned — a reviewed event or one
+    attached to an incident is part of a case record, and losing it silently
+    would be worse than a duplicate.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM events e
+            WHERE e.zone_id IS NULL
+              AND e.event_type = ANY(%s)
+              AND e.status = 'new'
+              AND e.reviewed_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM incident_events ie WHERE ie.event_id = e.id)
+              AND NOT EXISTS (SELECT 1 FROM bookmarks b
+                               WHERE b.target_type = 'event' AND b.target_id = e.id)
+            """ + (" RETURNING 0" if dry_run else ""),
+            (list(_ZONE_SCOPED),),
+        )
+        n = cur.rowcount
+        if dry_run:
+            conn.rollback()
+        return n
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
@@ -281,9 +328,33 @@ def main() -> None:
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     write = conn.cursor()
 
+    # Zone inserts carry no ON CONFLICT, so a second plain run lays a second set
+    # of polygons over the same tarmac. That is how this estate ended up with a
+    # timeline where every zone event appeared twice, and it fails silently —
+    # the run reports the zones it created and says nothing about the ones
+    # already there. Refuse instead, and name the flag that does the right thing.
+    write.execute("SELECT count(*) FROM zones WHERE created_by = 'derived'")
+    existing = write.fetchone()[0]
+    if existing and not args.replace and not args.dry_run:
+        raise SystemExit(
+            f"  {existing} derived zone(s) already exist. Re-running would add a "
+            f"second set over the same ground and double every zone event.\n"
+            f"  Use --replace to rebuild them, or --dry-run to see what would change."
+        )
+
     if args.replace and not args.dry_run:
         write.execute("DELETE FROM zones WHERE created_by = 'derived'")
         log.info("Removed %d previously derived zones", write.rowcount)
+
+    # Always, not only under --replace: a previous run's zones may already have
+    # been removed by hand, and the events they left behind are duplicates of
+    # whatever this run is about to produce.
+    orphans = prune_orphaned_zone_events(conn, dry_run=args.dry_run)
+    if orphans:
+        log.info("%s %d event(s) whose zone no longer exists",
+                 "Would remove" if args.dry_run else "Removed", orphans)
+    if not args.dry_run:
+        conn.commit()
 
     cur.execute(
         """SELECT t.camera_id, c.external_id, c.name, t.class, t.heading_deg,
