@@ -525,3 +525,42 @@ def test_describe_is_json_serialisable_and_cites_its_measurement():
     json.dumps(d)
     assert d["tier"] == "actionable"
     assert "2 of 2" in d["measured"]
+
+
+# ── ByteTrack id reuse ───────────────────────────────────────────────────────
+# A track number is unique within a lifetime, not within a run: once a track has
+# been lost for longer than the tracker's buffer the number is recycled, and the
+# fold used to weld the two vehicles into one row. The case that surfaced it is
+# in test_splits_the_track_that_was_two_cars.
+
+def _at(sec: float) -> dict:
+    from datetime import datetime, timedelta, timezone
+    return {"ts": datetime(2026, 9, 5, 0, 10, 8, tzinfo=timezone.utc) + timedelta(seconds=sec),
+            "mark": sec}
+
+
+def test_splits_the_track_that_was_two_cars():
+    """cam09, 5 Sept. Four frames of GJ11AB4579, a 56-second hole, then two of
+    GJ01RN7172 — one console row reading "57s over 7 frames", plate decided 4
+    votes to 1, and the crop beside it taken from the frame that lost."""
+    from ml.analytics.tracks import _split_on_gaps
+    segments = _split_on_gaps([_at(0), _at(0.5), _at(1.0), _at(1.5), _at(57.0), _at(57.2)])
+    assert [[r["mark"] for r in s] for s in segments] == [[0, 0.5, 1.0, 1.5], [57.0, 57.2]]
+
+
+def test_ordinary_occlusion_is_not_a_split():
+    """A vehicle behind a bus for three seconds is still the same vehicle. 91% of
+    this estate's frame gaps are under 3s, which is cadence plus occlusion."""
+    from ml.analytics.tracks import _split_on_gaps
+    assert len(_split_on_gaps([_at(0), _at(3), _at(6), _at(9)])) == 1
+
+
+def test_a_continuous_pass_is_left_alone():
+    from ml.analytics.tracks import _split_on_gaps
+    assert len(_split_on_gaps([_at(i * 0.5) for i in range(20)])) == 1
+
+
+def test_splitter_handles_the_degenerate_inputs():
+    from ml.analytics.tracks import _split_on_gaps
+    assert _split_on_gaps([]) == []
+    assert len(_split_on_gaps([_at(0)])) == 1

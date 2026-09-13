@@ -7,15 +7,23 @@ the running system; where a number is a sample, the sample size is given.
 
 ## ANPR
 
-**Accuracy is 67% exact match on fifteen hand-read plates, at 10.1% character
-error.** Forty-eight plate regions were exported magnified and read by eye:
-fifteen were legible, twenty-six were plates too degraded to read, and seven were
-not plates at all. Unreadable crops are recorded rather than dropped, because
-dropping them would quietly inflate the denominator.
+**Accuracy is 68% exact match on nineteen hand-read plates, at 4.8% character
+error.** Fifty-two plate regions were exported magnified and read by eye:
+nineteen were legible, twenty-five were plates too degraded to read, and eight
+were not plates at all. Unreadable crops are recorded rather than dropped,
+because dropping them would quietly inflate the denominator.
 
-The number came *down* from 78% as the set grew from nine plates to fifteen. The
-larger set includes harder cases the first pass had skipped as illegible, so 67%
-is the better estimate and 78% was optimistic. Fifteen is still a small sample.
+**Ground truth is anchored to the crop, not to the track.** That distinction cost
+a day: the labels were originally keyed on `track_id`, and when tracks were split
+on time gaps 11 of 17 labels ended up pointing at a track that no longer held
+what it held when it was read. Measured accuracy "fell" from 67% to 40% without
+the reader changing at all. A track id is not a stable identity for a plate; the
+crop a human read is.
+
+Character error more than halved — 10.1% to 4.8% — when tracks stopped carrying
+a second vehicle's plate. Exact match barely moved, which is the tell: the split
+did not make the reader better at characters, it stopped whole plates being
+attributed to the wrong car. Nineteen is still a small sample.
 
 **Four of the five misses are one character out** — `GJ15CB2936` read as
 `GJ15CB2934`, `GJ11CO5760` as `GJ11CQ5760`. The system is rarely wildly wrong;

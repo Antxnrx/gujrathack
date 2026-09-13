@@ -136,14 +136,19 @@ Show one: a real car at cam06, plate blurred beyond reading, registered
 > legible, twenty-six were plates too degraded for a human, and seven were not
 > plates at all."
 
-| | 9 plates | **15 plates** |
-|---|---|---|
-| exact match | 78% | **67%** |
-| character error rate | 13.3% | **10.1%** |
+| | 9 plates | 15 plates | **19 plates** |
+|---|---|---|---|
+| exact match | 78% | 67% | **68%** |
+| character error rate | 13.3% | 10.1% | **4.8%** |
 
-> "The number went **down** as the sample grew, because the bigger set includes
-> harder cases the first pass had skipped. 67% is the better estimate and 78% was
-> optimistic. We would rather correct that ourselves than have you find it."
+> "The number went **down** between the first two columns, because the bigger set
+> includes harder cases the first pass had skipped. We would rather correct that
+> ourselves than have you find it.
+>
+> The last column is a different kind of fix. Character error more than halved
+> while exact match barely moved, and that gap is the whole story: the reader did
+> not get better at characters. It stopped attributing one car's plate to another
+> car — which is what the next slide is about."
 
 Then the two things that make 67% workable:
 

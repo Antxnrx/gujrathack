@@ -23,6 +23,24 @@ apart; it is part of the group key here and part of the UNIQUE constraint on
 associate them) cannot be folded and are left alone — they remain searchable as
 individual detections.
 
+It is unique only within a *lifetime*, too, and that is the subtler half.
+ByteTrack recycles an id once a track has been lost for longer than its buffer,
+so the same number at the same camera in the same run can mean two vehicles
+minutes apart. Grouping on the number alone welded them into one "track":
+
+    00:10:08  GJ11AB4579   box 474,1 → 718,303
+    00:10:09  GJ11AB4579   box 438,290 → 814,748
+    00:11:05  GJ01RN7172   box 297,402 → 779,1005     <- 56 seconds later
+
+One row in the console, "57s over 7 frames", plate ``GJ11AB4579`` by 4 votes to
+1 — and the crop shown beside it taken from the 00:11:05 frame, so the
+photograph was of the vehicle that lost the vote. The label and the picture were
+different cars. 656 of 1,913 tracks had a gap like this, 42 of the 77 that carry
+a plate.
+
+So a group is cut wherever the gap between consecutive frames exceeds
+``MAX_FRAME_GAP_S``. See that constant for where the threshold comes from.
+
 Idempotency
 -----------
 Upsert on ``(camera_id, track_id, session_key)``. Re-running over the same
@@ -217,46 +235,103 @@ def _fetch_detections(
         ORDER BY d.camera_id, COALESCE(d.session_key, 'live'), d.track_id,
                  d.ts ASC, d.pts_ms ASC NULLS FIRST
     """
-    groups: dict[tuple, list[dict]] = defaultdict(list)
+    raw: dict[tuple, list[dict]] = defaultdict(list)
     with conn.cursor() as cur:
         cur.execute(sql, params)
         for row in cur:
             key = (str(row["camera_id"]), int(row["track_id"]),
                    row["session_key"] or "live")
-            groups[key].append(dict(row))
+            raw[key].append(dict(row))
+
+    # Cut each ByteTrack id into the passes it actually represents. The extra
+    # segments are distinguished in the *session_key* slot rather than by a new
+    # column, because that slot already exists to disambiguate a reused track
+    # number and it is part of the UNIQUE constraint — so this needs no
+    # migration, and the first segment keeps the original key, which means a
+    # re-fold updates the existing row in place instead of orphaning it.
+    groups: dict[tuple, list[dict]] = {}
+    for (cam, tid, session), rows in raw.items():
+        for n, segment in enumerate(_split_on_gaps(rows)):
+            groups[(cam, tid, session if n == 0 else f"{session}#{n}")] = segment
+
     if limit_tracks is not None and len(groups) > limit_tracks:
         keep = list(groups)[:limit_tracks]
         groups = {k: groups[k] for k in keep}
     return groups
 
 
-def _fetch_mean_embeddings(conn, keys: list[tuple]) -> dict[tuple, list[float]]:
+# Longer than this between consecutive frames and it is not the same pass.
+#
+# Measured over this estate's 16,917 frame-to-frame gaps: 77% are under 2s and
+# 91% under 3s, which is the processed cadence (every 5th frame of a 10-30fps
+# feed) plus ordinary occlusion — a vehicle behind a bus. Beyond that the
+# distribution has a distinct tail that cadence cannot explain: 3.7% at 10-30s,
+# 2.5% at 30-120s, and 0.2% over two minutes. A vehicle crossing a fixed camera
+# is in frame for seconds; it cannot leave for half a minute and be the same
+# pass. Five seconds keeps the whole cadence band and every plausible occlusion,
+# and cuts 9.6% of gaps.
+MAX_FRAME_GAP_S = 5.0
+
+
+def _split_on_gaps(rows: list[dict], max_gap_s: float = MAX_FRAME_GAP_S) -> list[list[dict]]:
+    """Cut one ByteTrack id into the separate passes it actually represents.
+
+    ``rows`` arrive ordered by time. Returns one list per pass; a group with no
+    long gap comes back as a single segment, which is the common case.
+    """
+    if not rows:
+        return []
+    segments: list[list[dict]] = [[rows[0]]]
+    for prev, row in zip(rows, rows[1:], strict=False):
+        gap = (row["ts"] - prev["ts"]).total_seconds()
+        if gap > max_gap_s:
+            segments.append([row])
+        else:
+            segments[-1].append(row)
+    return segments
+
+
+def _fetch_mean_embeddings(conn, groups: dict[tuple, list[dict]]) -> dict[tuple, list[float]]:
     """One query for the mean embedding of every group, computed in Postgres.
 
     pgvector 0.5+ implements ``avg(vector)``, so the 512-dimensional mean never
     leaves the server as individual rows. Verified against the deployed
     extension before relying on it.
+
+    Keyed on the *detections in each group*, not on ``(camera, track_id,
+    session)``. That distinction became load-bearing when groups started being
+    split on time gaps: averaging by ByteTrack id would hand the first segment
+    the mean of both vehicles and the later segments nothing at all — an
+    embedding of two cars at once, which is the same failure as a plate voted
+    across two cars and harder to notice, because reconstruction would simply
+    rank badly rather than show something visibly wrong.
     """
-    if not keys:
+    if not groups:
         return {}
-    cams = list({k[0] for k in keys})
+    ids: list[str] = []
+    labels: list[str] = []
+    index: dict[str, tuple] = {}
+    for key, rows in groups.items():
+        label = f"{key[0]}|{key[1]}|{key[2]}"
+        index[label] = key
+        for r in rows:
+            ids.append(str(r["id"]))
+            labels.append(label)
+
     sql = """
-        SELECT camera_id, track_id, COALESCE(session_key, 'live') AS session_key,
-               avg(embedding) AS mean_embedding
-        FROM detections
-        WHERE camera_id = ANY(%s::uuid[]) AND track_id IS NOT NULL
-              AND embedding IS NOT NULL
-        GROUP BY camera_id, track_id, COALESCE(session_key, 'live')
+        SELECT m.label, avg(d.embedding) AS mean_embedding
+        FROM unnest(%s::uuid[], %s::text[]) AS m(id, label)
+        JOIN detections d ON d.id = m.id
+        WHERE d.embedding IS NOT NULL
+        GROUP BY m.label
     """
-    wanted = set(keys)
     out: dict[tuple, list[float]] = {}
     with conn.cursor() as cur:
-        cur.execute(sql, (cams,))
+        cur.execute(sql, (ids, labels))
         for row in cur:
-            key = (str(row["camera_id"]), int(row["track_id"]), row["session_key"])
-            if key not in wanted or row["mean_embedding"] is None:
-                continue
-            out[key] = _l2_normalise(vector_to_list(row["mean_embedding"]))
+            key = index.get(row["label"])
+            if key is not None and row["mean_embedding"] is not None:
+                out[key] = _l2_normalise(vector_to_list(row["mean_embedding"]))
     return out
 
 
@@ -385,8 +460,23 @@ ON CONFLICT (camera_id, track_id, session_key) DO UPDATE SET
     plate_confidence  = EXCLUDED.plate_confidence,
     plate_read_count  = EXCLUDED.plate_read_count,
     plate_votes       = EXCLUDED.plate_votes,
-    first_seen        = LEAST(tracks.first_seen, EXCLUDED.first_seen),
-    last_seen         = GREATEST(tracks.last_seen, EXCLUDED.last_seen),
+    -- The fold is authoritative for the group it just computed, so these take
+    -- EXCLUDED rather than widening monotonically with LEAST/GREATEST.
+    --
+    -- The widening was right while a group could only ever gain rows. Splitting
+    -- on time gaps means a group can *lose* them, and GREATEST then pinned a
+    -- track's last_seen to a frame that now belongs to a different vehicle: the
+    -- row read "00:10:08 → 00:11:05" beside a duration of 2.4 seconds, in the
+    -- same row, disagreeing with itself. Worse, dwell is what loitering and
+    -- zone-intrusion are measured on, so a stale window manufactures events.
+    --
+    -- The cost is the incremental case: a `--since` run that sees only the tail
+    -- of a track now rewrites the whole window from the visible part. That was
+    -- already documented as the behaviour of `since` (a straddling track is
+    -- rebuilt from what is visible), and a boundary set comfortably before the
+    -- oldest track of interest still avoids it.
+    first_seen        = EXCLUDED.first_seen,
+    last_seen         = EXCLUDED.last_seen,
     first_pts_ms      = EXCLUDED.first_pts_ms,
     last_pts_ms       = EXCLUDED.last_pts_ms,
     duration_s        = EXCLUDED.duration_s,
@@ -464,7 +554,7 @@ def build_tracks(
     if not groups:
         return {"tracks": 0, "detections": 0, "skipped_short": 0, "plates": 0}
 
-    means = _fetch_mean_embeddings(conn, list(groups))
+    means = _fetch_mean_embeddings(conn, groups)
 
     # Frame size: prefer what the pipeline recorded, fall back to per-camera
     # inference (memoised — the fallback query is a full scan of that camera).

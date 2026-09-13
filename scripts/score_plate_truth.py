@@ -68,7 +68,7 @@ def main() -> None:
     # A track labelled in both passes is one sample, not two.
     by_track: dict[str, dict] = {}
     for r in rows:
-        by_track.setdefault(r["track_id"], r)
+        by_track.setdefault(r.get("thumbnail_key") or r["track_id"], r)
     rows = list(by_track.values())
     if not rows:
         raise SystemExit("No ground-truth files. Run scripts/export_plate_sheets.py first.")
@@ -85,8 +85,16 @@ def main() -> None:
 
     for r in legible:
         t = r["truth"].strip().upper()
-        cur.execute("SELECT plate_text, plate_confidence, plate_read_count "
-                    "FROM tracks WHERE id = %s", (r["track_id"],))
+        # Resolve through the crop where the label records one. The track that
+        # owns a given crop can change — splitting a track on time gaps moves
+        # its later frames to a new row — and a label anchored to a track id
+        # then silently measures a different vehicle.
+        if r.get("thumbnail_key"):
+            cur.execute("SELECT plate_text, plate_confidence, plate_read_count "
+                        "FROM tracks WHERE thumbnail_key = %s", (r["thumbnail_key"],))
+        else:
+            cur.execute("SELECT plate_text, plate_confidence, plate_read_count "
+                        "FROM tracks WHERE id = %s", (r["track_id"],))
         row = cur.fetchone()
         got = (row[0] or "").upper() if row else ""
         conf = (row[1] or 0.0) if row else 0.0

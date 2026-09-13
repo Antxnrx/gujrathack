@@ -119,6 +119,15 @@ def main() -> None:
         strips.append(strip)
 
         stub[idx] = {
+            # Anchor the label to the *crop*, not the track.
+            #
+            # A track id is not a stable identity for a plate. Splitting tracks
+            # on time gaps rebuilt every group, and 11 of 17 labels then pointed
+            # at a track that no longer held what it held when it was read —
+            # ANPR "accuracy" fell from 67% to 40% without the reader changing
+            # at all. The crop is what a human actually read, and it does not
+            # move.
+            "thumbnail_key": r["thumbnail_key"],
             "track_id": str(r["id"]),
             "camera": r["cam"],
             "predicted": r["plate_text"],
