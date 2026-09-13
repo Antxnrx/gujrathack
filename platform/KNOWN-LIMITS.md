@@ -47,18 +47,21 @@ every one had been found by more than one detector. There was no pool of plates
 one model sees and another misses, which is the only thing a fine-tune could have
 exploited. Training on 24 images would have overfitted and proved nothing.
 
-**Five of thirty cameras are ANPR-capable**, scored on measured yield and stored
-in `cameras.metadata.anpr`: cam09 (22.3%), cam06, cam12, cam17, cam07. All are
-chokepoints. Sixteen are labelled `no_plates_observed`.
+**Seven of thirty cameras are ANPR-capable**, scored on measured yield and stored
+in `cameras.metadata.anpr` — cam09 leads at 22.3%, and every one of the seven is a
+chokepoint: a toll plaza, a gate, a bus port, an approach road. Twelve are labelled
+`no_plates_observed` and four `overview_only`.
 
 ---
 
 ## Coverage of the estate
 
-**Thirteen cameras are thinly indexed.** cam18–cam30 were barely touched by the
-original GPU run. cam18 has since been indexed; the rest returned `403` partway
-through a later run, which is a session expiry against the upstream gateway
-rather than a fault in this system. The feeds are reachable and the indexer works.
+**Four cameras still have almost no data.** cam18-cam30 were barely touched by the
+original GPU run; a daylight re-index brought nine of them in and the estate now
+stands at 26 of 30 cameras with detections, 61,981 in total. cam19, cam20 and
+cam28 returned `403` part-way through that run — a session expiry upstream, not a
+fault here — and re-running the indexer after refreshing the credential would
+finish them.
 
 **The archive is 12 hours, 21:00 to 09:00**, so roughly three of those hours are
 daylight. Plate work at night is materially harder than plate work at noon, and
