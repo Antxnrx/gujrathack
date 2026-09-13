@@ -61,7 +61,8 @@ def main() -> None:
         with open(path, encoding="utf-8") as fh:
             for key, r in json.load(fh).items():
                 r = dict(r)
-                r["_key"] = f"{os.path.basename(path).replace('plate_truth','').strip('_.json') or 'base'}#{key}"
+                tag = os.path.basename(path).replace("plate_truth", "")
+                r["_key"] = f"{tag.strip('_.json') or 'base'}#{key}"
                 rows.append(r)
     # A track labelled in both passes is one sample, not two.
     by_track: dict[str, dict] = {}
