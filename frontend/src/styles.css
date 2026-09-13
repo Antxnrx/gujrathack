@@ -96,7 +96,12 @@ code, .mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums
 .nav-link.on { background: var(--bg-3); color: var(--fg); font-weight: 500; }
 .nav-link .badge { margin-left: auto; }
 
-.main { display: flex; flex-direction: column; min-width: 0; height: 100%; }
+/* min-height: 0 matters as much as min-width. A grid item defaults to
+   min-height: auto, so without this .main grows to fit its content instead of
+   being bounded by the shell — and then nothing inside it can scroll, because
+   there is no overflow to scroll. It went unnoticed while every route was a
+   .view, which scrolls itself; a two-pane workspace has no such escape. */
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .topbar {
   display: flex; align-items: center; gap: var(--gap);
   padding: 10px 16px; border-bottom: 1px solid var(--line);
@@ -663,3 +668,84 @@ table.tbl td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; t
 .rail-list { max-height: 360px; overflow-y: auto; }
 
 .dash-foot { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+
+/* ── Workspace: a fixed side panel and a scrolling main ────────────────────
+   The page itself does not scroll. The shell gives `.main` a fixed height, this
+   grid fills it, and each pane owns its own overflow — so reading down a long
+   list on the right never carries the camera's identity, its player or its
+   filters off the top of the screen.
+
+   `.view` is the other layout in this console: one column, one scrollbar, right
+   for a page that is read top to bottom. A workspace is for a page that is
+   *worked* — reference on one side, detail on the other — and the two must not
+   be nested, because a scroll container inside a scroll container is how you get
+   a panel that scrolls the wrong thing. */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  /* `flex: 1` and not `height: 100%`: this is a flex item of the shell column,
+     and a percentage height there resolves against a parent that is itself
+     sized by its content. `.view` has the same pair for the same reason —
+     without it the panes grow to fit their content, nothing overflows, and so
+     nothing scrolls independently. */
+  flex: 1; min-height: 0;
+}
+.workspace.wide-side { grid-template-columns: minmax(340px, 460px) minmax(0, 1fr); }
+
+.ws-side {
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  border-right: 1px solid var(--line); background: var(--bg-1);
+  padding: 12px; display: flex; flex-direction: column; gap: 12px;
+}
+.ws-main {
+  min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px; display: flex; flex-direction: column; gap: 12px;
+}
+/* A heading that stays put while its own pane scrolls. */
+.ws-main > .ws-bar, .ws-side > .ws-bar {
+  position: sticky; top: -12px; z-index: 5; margin: -12px -12px 0;
+  padding: 10px 12px; background: var(--bg); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.ws-side > .ws-bar { background: var(--bg-1); }
+
+@media (max-width: 900px) {
+  /* One column, one scroll. A 320px side panel beside a 320px main is two
+     unusable columns rather than one usable page. */
+  .workspace, .workspace.wide-side { grid-template-columns: 1fr; height: auto; }
+  .ws-side { border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .ws-main { overflow: visible; }
+}
+
+/* ── Camera grid ──────────────────────────────────────────────────────────
+   Density is the operator's choice: four across to sweep an estate, one across
+   to actually look at a frame. */
+.cam-grid { display: grid; gap: 10px; }
+.cam-grid.d2 { grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); }
+.cam-grid.d3 { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.cam-grid.d4 { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }
+
+.cam-tile {
+  display: flex; flex-direction: column; color: inherit;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--bg-1);
+  overflow: hidden; transition: border-color 120ms var(--ease, ease);
+}
+.cam-tile:hover { border-color: var(--accent-dim); text-decoration: none; }
+.cam-tile.hot { border-color: #7f1d2e; }
+.cam-tile-head {
+  display: flex; align-items: center; gap: 6px; padding: 7px 9px;
+  border-bottom: 1px solid var(--line-soft); font-size: 11.5px;
+}
+.cam-tile-head .id { font-family: var(--mono); color: var(--fg); }
+.cam-tile-body { padding: 9px; display: flex; flex-direction: column; gap: 7px; }
+.cam-tile .nm { font-size: 12.5px; line-height: 1.35; }
+/* Figures line up across tiles, which is what makes a grid scannable. */
+.cam-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 8px; }
+.cam-stat { display: flex; flex-direction: column; gap: 1px; }
+.cam-stat b { font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; }
+.cam-stat span { font-size: 9.5px; color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* The live dot, so "has a feed" reads at a glance rather than as a word. */
+.feed-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; }
+.feed-dot.on { background: var(--ok); box-shadow: 0 0 0 2px rgb(52 211 153 / 0.18); }
+.feed-dot.off { background: var(--fg-faint); }

@@ -39,13 +39,22 @@ export default function CameraView() {
   if (q.isLoading || !cam) return <div className="view"><Skeleton rows={10} /></div>;
 
   return (
-    <div className="view col" style={{ gap: 14 }}>
-      <div className="row wrap" style={{ gap: 10 }}>
-        <div>
+    // Two panes, each owning its own scroll. The player and the camera's
+    // identity stay on screen while the indexed detail is read down the right —
+    // previously the whole page was one scroll container, so looking at the
+    // twentieth plate read meant the feed you were checking it against had gone
+    // off the top.
+    <div className="workspace wide-side">
+      <aside className="ws-side">
+        <div className="col" style={{ gap: 4 }}>
           <div className="row" style={{ gap: 8 }}>
-            <b style={{ fontSize: 16 }}>{cam.name}</b>
-            <span className="mono dim">{cam.external_id}</span>
+            <b style={{ fontSize: 15 }} className="trunc">{cam.name}</b>
             <Status s={cam.status} />
+          </div>
+          <div className="row tiny" style={{ gap: 6 }}>
+            <span className="mono dim">{cam.external_id}</span>
+            <i className={`feed-dot ${cam.has_stream ? "on" : "off"}`} />
+            <span className="faint">{cam.has_stream ? "live feed" : "no feed"}</span>
           </div>
           <div className="tiny faint">
             {[cam.area, cam.district].filter(Boolean).join(", ") || "location unknown"}
@@ -53,18 +62,19 @@ export default function CameraView() {
             {cam.geocode_precision && ` · ${cam.geocode_precision}-level geocode`}
           </div>
         </div>
-        <div className="right row wrap tiny" style={{ gap: 6 }}>
+
+        <Player cameraRef={ref} zones={zones} />
+
+        <div className="row wrap tiny" style={{ gap: 5 }}>
           <Pill k="accent">{titleCase(cam.department ?? "")}</Pill>
           <span className="pill">{String(cam.metadata?.source_system ?? "unknown system")}</span>
           <span className="pill mono">{cam.camera_uid ?? "no UID"}</span>
           <span className="pill">{String(cam.metadata?.stream_protocol ?? "—").toUpperCase()}</span>
         </div>
-      </div>
 
-      <div className="split">
-        <div className="l col" style={{ gap: 14 }}>
-          <Player cameraRef={ref} zones={zones} />
+      </aside>
 
+      <main className="ws-main">
           <section className="card">
             <header>
               <b>Indexed activity</b>
@@ -136,9 +146,6 @@ export default function CameraView() {
               </div>
             </div>
           </section>
-        </div>
-
-        <div className="r col" style={{ gap: 14 }}>
           <section className="card">
             <header><b>Index</b></header>
             <div className="body">
@@ -231,8 +238,7 @@ export default function CameraView() {
               ))}
             </div>
           </section>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
