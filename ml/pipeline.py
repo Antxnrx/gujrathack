@@ -44,6 +44,12 @@ _MIN_READ_LEN = 6
 # every Indian registration begins with a two-letter state code.
 _OSD_TEXT = re.compile(r"^[0-9]+$")
 
+# Classes that all mean "a vehicle of some kind". When YOLO and CLIP disagree
+# only about which kind, the specific is not supported but the general is: an
+# SUV is a car to a person and a truck to COCO, and that distinction is not one
+# this system can make reliably on Indian roads.
+_VEHICLE_LIKE = frozenset({"car", "truck", "bus", "van", "auto_rickshaw"})
+
 @dataclass
 class Detection:
     id: str
@@ -232,6 +238,35 @@ class DetectionPipeline:
                 class_scores = (embedding_tensor @ self._class_label_embs.T)[0]
                 class_idx = int(class_scores.argmax().item())
                 clip_class_name = self._CLASS_NAMES[class_idx]
+
+            # ── Which class actually gets stored ──────────────────────────────
+            # YOLO's own label, from the full frame, on the box it drew. This
+            # used to be computed and discarded — the stored class was CLIP's
+            # zero-shot guess alone, and ruff reported `cls_id` as unused for as
+            # long as the line existed.
+            #
+            # It cost real accuracy. CLIP called a black Maruti S-Cross a
+            # "truck" on 51 of its 78 frames; YOLO, doing the detection job it
+            # was trained for, called it a car. Three of eight vehicles read by
+            # eye were cars labelled trucks this way.
+            #
+            # CLIP is still worth having: it names auto_rickshaw and tractor,
+            # which COCO has no class for, and it catches vehicles YOLO put in
+            # the wrong COCO bucket. So both are kept and the rule is agreement:
+            # when the two name different *kinds of vehicle*, neither is trusted
+            # for the specific and the detection is recorded as `vehicle`. That
+            # is never wrong, which a confident "truck" on a car is.
+            yolo_class_name = VEHICLE_CLASSES.get(cls_id)
+            if yolo_class_name is None:
+                stored_class = clip_class_name          # COCO has no such class
+            elif yolo_class_name == clip_class_name:
+                stored_class = clip_class_name
+            elif {yolo_class_name, clip_class_name} <= _VEHICLE_LIKE:
+                stored_class = "vehicle"
+            else:
+                # One says person, the other says car. YOLO drew the box, so it
+                # decides what is in it.
+                stored_class = yolo_class_name
             # ──────────────────────────────────────────────────────────────────
 
             plate_text, plate_conf = None, None
@@ -243,7 +278,7 @@ class DetectionPipeline:
                 id=str(uuid.uuid4()),
                 camera_id=camera_id,
                 track_id=track_id,
-                class_name=clip_class_name,   # CLIP zero-shot, not YOLO COCO label
+                class_name=stored_class,      # YOLO ∧ CLIP; "vehicle" where they differ
                 bbox={'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2},
                 confidence=conf,
                 plate_text=plate_text,

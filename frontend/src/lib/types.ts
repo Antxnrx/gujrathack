@@ -28,7 +28,16 @@ export interface Tag { id: string; name: string; color: string; kind: string; us
  * registering authority the plate itself names ("GJ 11 · Junagadh"); and
  * `rto_known` is false for a code Gujarat has never issued, which is a reason
  * to distrust a read even when every character looks crisp. */
-export interface PlateMeta {
+export interface AppearanceMeta {
+  /** True when two independent classifiers named different kinds of vehicle. */
+  class_uncertain?: boolean;
+  class_opinions?: Record<string, unknown> | null;
+  /** True when the bodywork reads a different colour from the whole crop. */
+  colour_uncertain?: boolean;
+  colour_opinions?: Record<string, unknown> | null;
+}
+
+export interface PlateMeta extends AppearanceMeta {
   plate_trust?: { tier: string; label: string; guidance: string } | null;
   plate_district?: string | null;
   plate_origin?: string | null;

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useFacets, useSearch, useCameras, useDistricts, useCreateEvidence } from "../lib/queries";
 import { dur, fullStamp, num, pct, stamp } from "../lib/format";
-import { Empty, ErrorBox, Modal, Pager, Pill, Plate, Skeleton, Thumb } from "../components/ui";
+import { Appearance, Empty, ErrorBox, Modal, Pager, Pill, Plate, Skeleton, Thumb } from "../components/ui";
 import { useReport } from "../components/Toasts";
 import { useDebounced } from "../components/Filters";
 
@@ -241,7 +241,9 @@ export default function SearchView() {
                   )}
                 </div>
                 <div className="tiny faint trunc">
-                  {[it.dominant_color, it.class].filter(Boolean).join(" ") || "unclassified"}
+                  <Appearance colour={it.dominant_color} klass={it.class}
+                              colourUncertain={it.colour_uncertain} classUncertain={it.class_uncertain}
+                              opinions={it.class_opinions} />
                   {level === "track" && it.duration_s != null && ` · ${dur(it.duration_s)}`}
                   {level === "detection" && it.confidence != null && ` · det ${pct(it.confidence, 0)}`}
                 </div>

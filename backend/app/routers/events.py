@@ -135,6 +135,7 @@ async def list_events(
     await storage.attach_thumbnails(body["items"])
 
     storage.attach_plate_trust(body["items"])
+    storage.attach_appearance(body["items"])
     return body
 
 

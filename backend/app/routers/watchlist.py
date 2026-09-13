@@ -88,6 +88,7 @@ async def _history_for(value: str, threshold: float) -> list[dict]:
     hits.sort(key=lambda r: (-r["match_score"], r["first_seen"]))
     await storage.attach_thumbnails(hits)
     storage.attach_plate_trust(hits)
+    storage.attach_appearance(hits)
     return hits
 
 

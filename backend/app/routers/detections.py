@@ -95,6 +95,7 @@ async def list_detections(
     await storage.attach_thumbnails(body["items"])
 
     storage.attach_plate_trust(body["items"])
+    storage.attach_appearance(body["items"])
     return body
 
 
@@ -159,6 +160,7 @@ async def list_tracks(
     rows = await db.fetch(
         """
         SELECT t.id, t.camera_id, t.track_id, t.session_key, t.class, t.dominant_color,
+               t.class_votes, t.color_votes,
                t.plate_text, t.plate_confidence, t.plate_read_count, t.first_seen,
                t.last_seen, t.first_pts_ms, t.last_pts_ms, t.duration_s, t.detection_count,
                t.thumbnail_key, t.heading_deg, t.displacement_norm, t.max_spread_norm,
@@ -184,6 +186,7 @@ async def list_tracks(
     await storage.attach_thumbnails(body["items"])
 
     storage.attach_plate_trust(body["items"])
+    storage.attach_appearance(body["items"])
     return body
 
 

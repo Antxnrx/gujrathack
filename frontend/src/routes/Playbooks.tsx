@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
-import { Empty, ErrorBox, Plate, Skeleton, Thumb } from "../components/ui";
+import { Appearance, Empty, ErrorBox, Plate, Skeleton, Thumb } from "../components/ui";
 import { useReport } from "../components/Toasts";
 import { fullStamp } from "../lib/format";
 import type { PlaybookResult, PlaybookRow, PlaybookSpec } from "../lib/types";
@@ -306,7 +306,9 @@ function Result({ r }: { r: PlaybookResult }) {
                       : t.match === "exact" ? <span className="pill">exact</span> : <span className="faint">—</span>}
                   </td>
                   <td className="small">
-                    {[t.dominant_color, t.class].filter(Boolean).join(" ") || <span className="faint">—</span>}
+                    <Appearance colour={t.dominant_color} klass={t.class}
+                                colourUncertain={t.colour_uncertain} classUncertain={t.class_uncertain}
+                                opinions={t.class_opinions} />
                   </td>
                   <td className="small mono">{t.camera_external_id}</td>
                   <td className="small">{fullStamp(t.first_seen)}</td>

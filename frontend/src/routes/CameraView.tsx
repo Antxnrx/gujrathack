@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useCamera, useCameraTimeline, useTracks } from "../lib/queries";
 import { ago, dur, fullStamp, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
-import { Bar, Empty, ErrorBox, Pill, SevDot, Skeleton, Status, Thumb } from "../components/ui";
+import { Appearance, Bar, Empty, ErrorBox, Pill, SevDot, Skeleton, Status, Thumb } from "../components/ui";
 import { Player } from "../components/Player";
 
 /**
@@ -128,7 +128,8 @@ export default function CameraView() {
                       <span className="right tiny faint">{t.plate_read_count} reads</span>
                     </div>
                     <div className="tiny faint trunc">
-                      {[t.dominant_color, t.class].filter(Boolean).join(" ")} · {stamp(t.first_seen)} · {dur(t.duration_s)}
+                      <Appearance colour={t.dominant_color} klass={t.class}
+                                  colourUncertain={t.colour_uncertain} classUncertain={t.class_uncertain} /> · {stamp(t.first_seen)} · {dur(t.duration_s)}
                     </div>
                   </Link>
                 ))}

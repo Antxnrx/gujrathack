@@ -197,7 +197,8 @@ async def search(
 
     if req.level == "track":
         columns = f"""
-            t.id, t.camera_id, t.class, t.dominant_color, t.plate_text, t.plate_confidence,
+            t.id, t.camera_id, t.class, t.dominant_color, t.class_votes, t.color_votes,
+            t.plate_text, t.plate_confidence,
             t.plate_read_count, t.first_seen, t.last_seen, t.first_pts_ms, t.last_pts_ms,
             t.duration_s, t.detection_count, t.thumbnail_key, t.heading_deg,
             t.displacement_norm, t.best_detection_id, t.source{select_extra}
@@ -225,6 +226,7 @@ async def search(
     await storage.attach_thumbnails(body["items"])
 
     storage.attach_plate_trust(body["items"])
+    storage.attach_appearance(body["items"])
 
     body["query"] = {
         "level": req.level,

@@ -81,24 +81,104 @@ export function Stat({ n, l, tone }: { n: ReactNode; l: string; tone?: "hot" | "
 }
 
 /**
- * Thumbnails, and the reason this is not a bare `<img>`.
+ * A stored crop.
  *
- * `thumbnail_url` is a presigned MinIO URL that the API attaches per row, and it is
- * null whenever a crop was never written — which in this deployment is every row,
- * because the bucket does not exist yet. A bare img with src={null} renders a broken
- * icon; this renders what the frame *was*, which is more use than a broken icon and
- * does not change once imagery lands.
+ * `thumbnail_url` is a presigned MinIO URL the API attaches per row, and it is
+ * null wherever a crop was never written. A bare `<img>` with a null src renders
+ * a broken icon; this renders what the frame *was*, which is more use.
+ *
+ * These are vehicle crops, and a vehicle photographed from the front is taller
+ * than it is wide — the mean aspect across this estate is 0.82, and 93% of the
+ * 62,000 crops are narrower than 16:9. The first version of this component put
+ * every one of them in a 16:9 box with `object-fit: cover`, which scales to fill
+ * the width and then discards the overflow top and bottom: **48% of a typical
+ * crop, cut symmetrically from the two ends.**
+ *
+ * The number plate is at the bottom of a front-on vehicle crop. So the one thing
+ * an officer opens the picture to read was the first thing thrown away, on every
+ * screen in the console, and the image looked deliberate rather than broken.
+ *
+ * `contain` shows the whole crop. The letterboxing that costs on a portrait
+ * image is the correct trade: empty space is honest, a silently cropped plate is
+ * not. Clicking opens the crop full size, because a 84px-wide thumbnail is for
+ * recognising a vehicle and a plate needs magnification to read.
  */
-export function Thumb({ src, alt, label, className }:
-  { src?: string | null; alt?: string; label?: string; className?: string }) {
+export function Thumb({ src, alt, label, className, zoomable = true }:
+  { src?: string | null; alt?: string; label?: string; className?: string;
+    zoomable?: boolean }) {
   const [failed, setFailed] = useState(false);
+  const [zoom, setZoom] = useState(false);
   useEffect(() => setFailed(false), [src]);
   if (!src || failed) {
     return <div className={`thumb ph ${className ?? ""}`}>{label ?? "no crop"}</div>;
   }
   return (
-    <img className={`thumb ${className ?? ""}`} src={src} alt={alt ?? ""}
-         loading="lazy" decoding="async" onError={() => setFailed(true)} />
+    <>
+      <img className={`thumb ${zoomable ? "zoomable" : ""} ${className ?? ""}`}
+           src={src} alt={alt ?? ""} loading="lazy" decoding="async"
+           title={zoomable ? "Click to see the full crop" : undefined}
+           onError={() => setFailed(true)}
+           onClick={zoomable ? () => setZoom(true) : undefined} />
+      {zoom && <Lightbox src={src} alt={alt ?? label ?? "crop"} onClose={() => setZoom(false)} />}
+    </>
+  );
+}
+
+/** The crop at its own size, over a dimmed page. Escape or a click closes it. */
+function Lightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="lightbox" onClick={onClose} role="dialog" aria-label={alt}>
+      <figure onClick={(e) => e.stopPropagation()}>
+        <img src={src} alt={alt} />
+        <figcaption>
+          <span>{alt}</span>
+          <button className="ghost sm" onClick={onClose}>Close</button>
+        </figcaption>
+      </figure>
+    </div>
+  );
+}
+
+/**
+ * What the vehicle looks like, with the parts the system is unsure of marked.
+ *
+ * Colour and class are CLIP zero-shot over the whole crop, and on this estate
+ * that is measurably unreliable: a black Maruti S-Cross was labelled "white
+ * truck" — the orange cloth on its dashboard read through the windscreen, and
+ * COCO has no class between car and truck for an SUV. Next to a correctly-read
+ * plate, that one wrong phrase is what made the whole system look broken.
+ *
+ * Nothing is hidden. A weak colour is still a useful search filter and the
+ * operator can open the crop and see for themselves. What changes is that the
+ * row stops *claiming* to have observed what it actually inferred: a contested
+ * class reads `vehicle`, and a contested colour is dimmed and marked.
+ */
+export function Appearance(
+  { colour, klass, colourUncertain, classUncertain, opinions }:
+  { colour?: string | null; klass?: string | null;
+    colourUncertain?: boolean; classUncertain?: boolean;
+    opinions?: Record<string, unknown> | null },
+) {
+  if (!colour && !klass) return <span className="faint">—</span>;
+  const why = classUncertain && opinions
+    ? `Two classifiers disagreed (${Object.entries(opinions)
+        .map(([k, v]) => `${k}: ${v}`).join(", ")}), so only "vehicle" is supported`
+    : undefined;
+  return (
+    <span className="appearance">
+      {colour && (
+        <span className={colourUncertain ? "unsure" : undefined}
+              title={colourUncertain ? "The bodywork reads a different colour — treat as an estimate" : undefined}>
+          {colour}{colourUncertain && <i className="q">?</i>}
+        </span>
+      )}
+      {klass && <span className={classUncertain ? "unsure" : undefined} title={why}>{klass}</span>}
+    </span>
   );
 }
 

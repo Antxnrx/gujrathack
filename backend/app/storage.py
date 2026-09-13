@@ -131,6 +131,38 @@ def attach_plate_trust(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def attach_appearance(rows: list[dict]) -> list[dict]:
+    """Say how far the colour and class of a vehicle can be trusted.
+
+    Both are CLIP zero-shot over the whole crop, and CLIP on a whole crop is
+    measurably unreliable here: it called a black car white on 61 of its 78
+    frames, reading the orange cloth on the dashboard through the windscreen.
+    Presenting that as "white truck" next to a correctly-read plate is what made
+    a working ANPR look broken.
+
+    ``scripts/regrade_appearance.py`` compares each label against an independent
+    second opinion and records the disagreements. This surfaces them:
+
+        class_uncertain   two methods named different kinds of vehicle, so the
+                          row now reads ``vehicle`` rather than a specific
+        colour_uncertain  the bodywork disagreed with the whole-crop reading
+
+    The values are not suppressed — a weak colour is still a search filter, and
+    the operator can see the crop. What changes is that the row stops claiming
+    to have observed something it inferred.
+    """
+    for r in rows:
+        cv = r.get("class_votes") or {}
+        col = r.get("color_votes") or {}
+        if isinstance(cv, dict) and cv.get("contested"):
+            r["class_uncertain"] = True
+            r["class_opinions"] = cv["contested"]
+        if isinstance(col, dict) and col.get("contested"):
+            r["colour_uncertain"] = True
+            r["colour_opinions"] = col["contested"]
+    return rows
+
+
 def health() -> dict:
     try:
         client = _get_client()

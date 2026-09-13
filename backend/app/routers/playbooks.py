@@ -411,7 +411,8 @@ async def scene_canvass(
     tracks = await db.fetch(
         """
         SELECT t.id, t.plate_text, t.plate_confidence, t.plate_read_count,
-               t.class, t.dominant_color, t.first_seen, t.last_seen, t.duration_s,
+               t.class, t.dominant_color, t.class_votes, t.color_votes,
+               t.first_seen, t.last_seen, t.duration_s,
                t.thumbnail_key, t.best_detection_id,
                c.external_id AS camera_external_id, c.name AS camera_name, c.district
         FROM tracks t JOIN cameras c ON c.id = t.camera_id
@@ -427,6 +428,7 @@ async def scene_canvass(
     )
     await storage.attach_thumbnails(tracks)
     storage.attach_plate_trust(tracks)
+    storage.attach_appearance(tracks)
 
     # Actionable first, then verify, then leads, then no plate at all. Within a
     # band, earliest first — inside one band the time is the useful order.
