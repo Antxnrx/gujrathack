@@ -328,7 +328,7 @@ Worth doing last, because it answers the question a judge will ask: *is any of
 this live, or is it a database of old results?*
 
 ```bash
-CAMERAS=cam06 python -m ml.worker        # the inference worker, one camera
+CAMERAS=cam06 .venv/bin/python -m ml.worker   # the inference worker, one camera
 tail -f /tmp/setu-analytics.log          # the fold, already running
 ```
 
