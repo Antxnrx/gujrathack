@@ -15,14 +15,21 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from urllib.parse import urlsplit
+
 import cv2
 import requests
 
-SENTINEL_BASE = "https://cctv.corp8.cloud"
-SENTINEL_PASSWORD = "DBAD-4UQP-BSTV"
-RTSP_BASE = "rtsp://103.250.160.189:8554/stream"
-RTSP_HOST = "103.250.160.189"
-RTSP_PORT = 8554
+# Read from the environment like everything else. This file used to carry its own
+# copy of the gateway password as a module constant, which is how one secret ends
+# up in four tracked files and nobody notices until a repository is made public.
+from ml.config import settings
+
+SENTINEL_BASE = settings.sentinel_base_url
+SENTINEL_PASSWORD = settings.sentinel_password
+RTSP_BASE = settings.sentinel_rtsp_base
+RTSP_HOST = urlsplit(RTSP_BASE).hostname or ""
+RTSP_PORT = urlsplit(RTSP_BASE).port or 8554
 
 
 def get_cookie() -> str:

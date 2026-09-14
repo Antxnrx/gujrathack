@@ -36,15 +36,25 @@ class Settings(BaseSettings):
     )
 
     # ── Sentinel camera sandbox ──────────────────────────────────────────────
+    #
+    # Every value here comes from the environment and none has a default, which
+    # is deliberate and was not always the case. The gateway password used to sit
+    # in this file as a literal default; `.env` was gitignored and carefully kept
+    # untracked, so the secret that actually leaked was the one nobody thought of
+    # as a secret — a fallback value in tracked source, pushed to a public remote.
+    #
+    # A required field fails loudly at import with a message naming the variable.
+    # A default fails silently by working, which is how a credential survives in a
+    # repository long enough to be published with it.
     sentinel_email: str
-    sentinel_password: str = "DBAD-4UQP-BSTV"
-    """Password for POST /auth/login on the Sentinel sandbox."""
+    sentinel_password: str
+    """Password for POST /auth/login on the Sentinel sandbox. Set SENTINEL_PASSWORD."""
 
-    sentinel_base_url: str = "https://cctv.corp8.cloud"
-    """Base URL for the Sentinel HLS sandbox (no trailing slash)."""
+    sentinel_base_url: str
+    """Base URL for the Sentinel HLS sandbox, no trailing slash. Set SENTINEL_BASE_URL."""
 
-    sentinel_rtsp_base: str = "rtsp://103.250.160.189:8554/stream"
-    """Base URL for RTSP streams (no auth required)."""
+    sentinel_rtsp_base: str
+    """Base URL for RTSP streams. Set SENTINEL_RTSP_BASE."""
 
     # ── Camera selection ─────────────────────────────────────────────────────
     cameras: str = "cam04,cam05,cam06,cam08,cam12,cam18"

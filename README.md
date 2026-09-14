@@ -24,7 +24,8 @@ Connects to the Sentinel CCTV sandbox (30 real Gujarat camera feeds), runs AI in
 - Python 3.11+
 - NVIDIA GPU with CUDA 12.x (RTX 3060 or better) — CPU fallback works but is slow
 - Docker (for Postgres + MinIO)
-- Access to the Sentinel camera sandbox (`DBAD-4UQP-BSTV`)
+- Access to the Sentinel camera sandbox (credentials from the gateway owner;
+  set `SENTINEL_EMAIL` and `SENTINEL_PASSWORD` in `.env`)
 
 ## Setup
 
