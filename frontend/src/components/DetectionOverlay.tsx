@@ -22,6 +22,17 @@ import type { DetectionRow } from "../lib/types";
  * viewBox scale. A label that grows with the frame is unreadable on a wall tile
  * and enormous on a stage.
  *
+ * What these boxes are, and are not
+ * ---------------------------------
+ * They are detections this camera's worker genuinely produced. They are **not**
+ * an annotation of the frame currently on screen, unless the source is a true
+ * live edge. This estate's gateway serves a 24-hour seekable archive: the worker
+ * walks its segments from the start while the browser plays from wherever it
+ * seeked to, so the two are independent playheads over the same recording.
+ * Aligning them requires each detection to carry its absolute offset into the
+ * archive, which is not stored yet — so the caller turns this on deliberately
+ * and the control that does so says what it is showing.
+ *
  * Honesty about lag
  * -----------------
  * These are polled, not streamed, so a box is always a little behind the

@@ -40,10 +40,22 @@ export default function CameraView() {
   const tracks = useTracks({ camera: ref, limit: 24, has_plate: true });
   const stageRef = useRef<HTMLDivElement>(null);
 
-  // Boxes are on by default and can be turned off, because an operator reading
-  // a face or a sign wants the picture unobstructed — and because a wall of
-  // boxes over a busy junction hides the very thing it is annotating.
-  const [boxes, setBoxes] = useState(true);
+  // Off by default, because this gateway serves a recorded archive rather than a
+  // live edge and the two playheads are independent.
+  //
+  // The worker walks the segment list from the start of the archive; the browser
+  // plays from wherever it seeked to — 13:36:20 of 24:28:58, in the case that
+  // caught this. Both are real, both are the same camera, and they are almost
+  // never the same moment, so a box drawn from the worker's position lands on a
+  // frame the browser is showing from somewhere else entirely. It reads as
+  // latency or as a tracker that cannot follow a car; it is neither.
+  //
+  // Correctly synchronising this needs each detection to carry its absolute
+  // offset into the archive so the overlay can be driven from the element's
+  // currentTime instead of wall-clock. Until that exists, the overlay is opt-in
+  // and labelled for what it is: what the detector is finding on this camera
+  // right now, not an annotation of the frame on screen.
+  const [boxes, setBoxes] = useState(false);
   const live = useLiveDetections(ref, boxes);
   const dets = live.data?.items ?? [];
 
@@ -128,7 +140,8 @@ export default function CameraView() {
           <Status s={cam.status} />
           <span className="grow" />
           <button className={boxes ? "primary sm" : "ghost sm"} onClick={() => setBoxes((b) => !b)}
-                  aria-pressed={boxes} title="Draw detector boxes over the picture (B)">
+                  aria-pressed={boxes}
+                  title="Draw what the detector is finding on this camera now (B). On a recorded feed these do not correspond to the frame on screen.">
             Boxes
           </button>
           <span className="tiny faint">{at >= 0 ? `${at + 1} / ${order.length}` : ""}</span>
