@@ -40,12 +40,12 @@ against a different camera's URL space to sidestep a per-camera authorisation ch
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import logging
 import secrets
 import time
-from collections import OrderedDict
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
 
@@ -65,11 +65,22 @@ router = APIRouter(prefix="/stream", tags=["stream"])
 # process would resolve to nothing anyway.
 _TOKEN_SECRET = secrets.token_bytes(32)
 
-# token -> (upstream_url, camera_external_id). Bounded LRU: a live playlist window is
-# a handful of segments, and this only has to outlive the browser's fetch of the
-# playlist that produced it.
-_TOKENS: "OrderedDict[str, tuple[str, str]]" = OrderedDict()
-_TOKEN_MAX = 8192
+# Tokens carry their own URL and are signed; there is no table to look them up in.
+#
+# There used to be one — a bounded LRU of 8,192 entries, sized by a comment reading
+# "a live playlist window is a handful of segments". This gateway does not serve a
+# live window. It serves `#EXT-X-PLAYLIST-TYPE:VOD` with 4,306 segments, so a single
+# camera's playlist mints 4,307 tokens and a second camera evicts the first camera's
+# oldest entries. The AES key is the first URI in a playlist, so it was the first
+# token minted and the first one evicted: opening two cameras produced a player that
+# fetched its playlist successfully and then 404ed on the key and the early segments,
+# which reads as a dead camera rather than a full cache.
+#
+# Signing the URL into the token removes the failure mode rather than resizing it: a
+# 30-camera estate would need 129,000 entries, and a second API process would not
+# share them. A token now verifies arithmetically, so it cannot expire early, cannot
+# be evicted, and works across processes — which is also what a deployment behind
+# more than one worker needs.
 
 
 def _origin(url: str) -> tuple[str, str, Optional[int]]:
@@ -95,24 +106,45 @@ def _same_origin(url: str) -> bool:
 
 
 def _mint(url: str, camera: str) -> str:
-    token = hmac.new(_TOKEN_SECRET, f"{camera}\x00{url}".encode(), hashlib.sha256).hexdigest()[:32]
-    _TOKENS[token] = (url, camera)
-    _TOKENS.move_to_end(token)
-    while len(_TOKENS) > _TOKEN_MAX:
-        _TOKENS.popitem(last=False)
-    return token
+    """A signed, self-contained handle for one upstream URL.
+
+    The camera is signed in but not carried: a token minted while rewriting one
+    camera's playlist cannot be replayed against another camera's endpoint, and
+    tampering with the URL invalidates the signature. Since only this process can
+    mint, a token that verifies is one this process built from a URL that already
+    passed `_same_origin` — so redeeming it cannot be turned into a fetch of
+    somewhere else.
+    """
+    payload = base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
+    sig = hmac.new(_TOKEN_SECRET, f"{camera}\x00{url}".encode(), hashlib.sha256).digest()[:16]
+    return f"{payload}.{base64.urlsafe_b64encode(sig).decode().rstrip('=')}"
+
+
+def _unpad(b64: str) -> bytes:
+    return base64.urlsafe_b64decode(b64 + "=" * (-len(b64) % 4))
 
 
 def _redeem(token: str, camera: str) -> str:
-    entry = _TOKENS.get(token)
-    if entry is None:
-        # Expired out of the LRU, or never existed. Both are the client's cue to
-        # re-read the playlist, which is what hls.js does on a 404 anyway.
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown or expired stream token")
-    url, minted_for = entry
-    if minted_for != camera:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Token was minted for another camera")
-    _TOKENS.move_to_end(token)
+    try:
+        payload, sig = token.rsplit(".", 1)
+        url = _unpad(payload).decode()
+        presented = _unpad(sig)
+    except Exception:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Malformed stream token") from None
+
+    expected = hmac.new(_TOKEN_SECRET, f"{camera}\x00{url}".encode(), hashlib.sha256).digest()[:16]
+    if not hmac.compare_digest(presented, expected):
+        # Covers a tampered URL, a token minted for another camera, and a token
+        # from a previous process — all of which are the client's cue to re-read
+        # the playlist rather than a reason to fetch anything.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Stream token is not valid here")
+
+    # Belt and braces. The signature already implies this URL passed `_same_origin`
+    # when it was minted, but the gateway origin is configuration and configuration
+    # changes; re-checking costs a string compare and keeps the guarantee local to
+    # the function that acts on it.
+    if not _same_origin(url):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Token does not address the gateway")
     return url
 
 

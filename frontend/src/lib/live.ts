@@ -11,6 +11,8 @@
  * A component gets a callback; it never gets the socket.
  */
 
+import { renewToken } from "./api";
+
 type Handler = (topic: string, data: unknown) => void;
 
 // The frame names are the bus channel names verbatim — sse.frame() passes
@@ -33,6 +35,14 @@ export type LiveState = "idle" | "connecting" | "open" | "error";
 
 let state: LiveState = "idle";
 const stateWatchers = new Set<(s: LiveState) => void>();
+
+/** Consecutive failed reopen attempts. Reset the moment a connection opens. */
+let retries = 0;
+/** Past this, stop: something is wrong that reconnecting cannot fix, and an
+ *  unbounded reopen loop against the API is worse than a badge reading
+ *  "offline". */
+const MAX_RETRIES = 4;
+let retryTimer: number | undefined;
 
 function setState(s: LiveState) {
   state = s;
@@ -62,15 +72,44 @@ function open() {
       handlers.forEach((h) => h(topic, data));
     });
   }
-  es.onopen = () => setState("open");
+  es.onopen = () => { retries = 0; setState("open"); };
   es.onerror = () => {
-    // EventSource reconnects on its own with backoff. Closing it here would replace
-    // that with nothing, so this only reports.
-    setState(es.readyState === EventSource.CLOSED ? "error" : "connecting");
+    // A dropped connection and a refused one are different failures.
+    //
+    // EventSource retries a dropped *connection* on its own, and for that this
+    // only has to report. It does not retry an HTTP error: a non-2xx response
+    // puts the stream in CLOSED permanently. The token is baked into the URL
+    // because EventSource cannot set headers, and the access token lives fifteen
+    // minutes — so the ordinary course of leaving the console open was a stream
+    // that died at the fifteen-minute mark and a badge that read "offline" for
+    // the rest of the shift, with live alerts silently not arriving.
+    //
+    // So a CLOSED stream renews the token and opens a new one, bounded. This is
+    // the same fix the video player needed for the same reason; the difference
+    // is that hls.js retries too eagerly and EventSource not at all.
+    if (es.readyState !== EventSource.CLOSED) { setState("connecting"); return; }
+
+    setState("error");
+    if (retries >= MAX_RETRIES || handlers.size === 0) return;
+    retries += 1;
+    const wait = Math.min(30_000, 1000 * 2 ** (retries - 1));
+    window.clearTimeout(retryTimer);
+    retryTimer = window.setTimeout(() => {
+      // Nobody may be listening any more by the time this fires.
+      if (handlers.size === 0) return;
+      renewToken().then((ok) => {
+        if (!ok || handlers.size === 0) return;
+        source?.close();
+        source = null;
+        open();
+      });
+    }, wait);
   };
 }
 
 function close() {
+  window.clearTimeout(retryTimer);
+  retries = 0;
   source?.close();
   source = null;
   setState("idle");
