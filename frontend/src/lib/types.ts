@@ -143,6 +143,34 @@ export interface TrackRow extends PlateMeta {
   district: string | null;
 }
 
+/**
+ * One detector box in one frame — the unit the live overlay draws.
+ *
+ * `bbox` is in *source pixels*, which are only meaningful next to `frame_w` /
+ * `frame_h`; both are nullable because the estate's first indexing passes did
+ * not record the frame size, and a box without one cannot be placed.
+ */
+export interface DetectionRow {
+  id: string;
+  camera_id: string;
+  class: string;
+  confidence: number;
+  bbox: { x1: number; y1: number; x2: number; y2: number } | null;
+  plate_text: string | null;
+  plate_confidence: number | null;
+  dominant_color: string | null;
+  thumbnail_url: string | null;
+  ts: string;
+  pts_ms: number | null;
+  track_uuid: string | null;
+  track_id: number | null;
+  frame_w: number | null;
+  frame_h: number | null;
+  source: string | null;
+  camera_external_id: string;
+  camera_name: string;
+}
+
 export interface AlertRow extends PlateMeta {
   id: string;
   alert_type: string;

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, getToken, renewToken } from "../lib/api";
-import type { Zone } from "../lib/types";
+import type { DetectionRow, Zone } from "../lib/types";
+import { DetectionOverlay } from "./DetectionOverlay";
 
 /**
  * The unified viewer's video element.
@@ -33,10 +34,12 @@ const REASON: Record<string, string> = {
 };
 
 export function Player(
-  { cameraRef, zones, active = true, compact = false }:
+  { cameraRef, zones, detections, active = true, compact = false }:
   {
     cameraRef: string;
     zones?: Zone[];
+    /** Detector boxes to draw over the picture. Empty or absent draws nothing. */
+    detections?: DetectionRow[];
     /** False tears the decoder down and never creates one.
      *
      *  The wall needs this and nothing else does. Nine simultaneous 1080p HLS
@@ -53,6 +56,44 @@ export function Player(
   const [err, setErr] = useState<string | null>(null);
   const [live, setLive] = useState<boolean | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [fitBox, setFitBox] = useState<
+    { left: number; top: number; width: number; height: number } | null>(null);
+
+  // Where the picture actually is inside the element.
+  //
+  // `object-fit: contain` letterboxes the video, so the element and the picture
+  // are different rectangles whenever their aspect ratios differ — which is
+  // always, on a stage sized to the viewport. Anything drawn over the frame has
+  // to be positioned against the picture, not the element. Publishing that one
+  // rectangle here means each overlay can use the frame's own coordinates and
+  // none of them has to know about letterboxing.
+  //
+  // This is also the fix for the zone polygons, which were stretched across the
+  // element and so sat off by the size of the letterbox on every camera.
+  useEffect(() => {
+    const el = video.current;
+    if (!el) return;
+    const measure = () => {
+      const { videoWidth: vw, videoHeight: vh, clientWidth: bw, clientHeight: bh } = el;
+      if (!vw || !vh || !bw || !bh) { setFitBox(null); return; }
+      const s = Math.min(bw / vw, bh / vh);
+      const w = vw * s, h = vh * s;
+      setFitBox({ left: (bw - w) / 2, top: (bh - h) / 2, width: w, height: h });
+    };
+    measure();
+    // `resize` on a media element fires when the intrinsic size arrives or
+    // changes level; ResizeObserver covers the element being laid out
+    // differently — fullscreen, a density change, a dragged window.
+    el.addEventListener("loadedmetadata", measure);
+    el.addEventListener("resize", measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("loadedmetadata", measure);
+      el.removeEventListener("resize", measure);
+      ro.disconnect();
+    };
+  }, []);
 
   const probe = useQuery({
     queryKey: ["probe", cameraRef],
@@ -222,7 +263,14 @@ export function Player(
     <div className={`player${compact ? " compact" : ""}`}>
       <video ref={video} controls muted playsInline
              onPlaying={() => setPlaying(true)} onPause={() => setPlaying(false)} />
-      {zones?.length ? <ZoneOverlay zones={zones} /> : null}
+      {/* Both overlays live in the picture's rectangle, so each can work in the
+          coordinates its data is stored in and neither repeats the fit maths. */}
+      {fitBox && (zones?.length || detections?.length) ? (
+        <div className="fitbox" style={fitBox}>
+          {zones?.length ? <ZoneOverlay zones={zones} /> : null}
+          {detections?.length ? <DetectionOverlay detections={detections} /> : null}
+        </div>
+      ) : null}
       <div className="hud">
         {/* Says what the playlist says, not what the player is doing.
             This used to read "live" whenever anything was playing, and the

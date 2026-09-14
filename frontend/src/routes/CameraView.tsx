@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useCamera, useCameraTimeline, useCameras, useTracks } from "../lib/queries";
+import {
+  useCamera, useCameraTimeline, useCameras, useLiveDetections, useTracks,
+} from "../lib/queries";
 import { ago, dur, hhmmss, num, pct, stamp, titleCase } from "../lib/format";
 import {
   Appearance, Bar, Empty, ErrorBox, Help, Pill, Plate, SevDot, Skeleton, Status, Thumb,
@@ -38,6 +40,27 @@ export default function CameraView() {
   const tracks = useTracks({ camera: ref, limit: 24, has_plate: true });
   const stageRef = useRef<HTMLDivElement>(null);
 
+  // Boxes are on by default and can be turned off, because an operator reading
+  // a face or a sign wants the picture unobstructed — and because a wall of
+  // boxes over a busy junction hides the very thing it is annotating.
+  const [boxes, setBoxes] = useState(true);
+  const live = useLiveDetections(ref, boxes);
+  const dets = live.data?.items ?? [];
+
+  // "On screen" is the same four-second window the overlay fades over, so the
+  // count and the picture never disagree. "Detector running" is a looser
+  // question — a camera can go quiet for a few seconds on an empty road without
+  // the worker having stopped — so it is asked over a longer window.
+  const seen = useMemo(() => {
+    const now = Date.now();
+    const age = (d: { ts: string }) => (now - new Date(d.ts).getTime()) / 1000;
+    return {
+      onScreen: dets.filter((d) => age(d) <= 4).length,
+      plates: dets.filter((d) => d.plate_text && age(d) <= 60).length,
+      running: dets.some((d) => age(d) <= 20),
+    };
+  }, [dets]);
+
   const cam = q.data?.camera;
   const act = q.data?.activity;
   const zones = useMemo(() => q.data?.zones ?? [], [q.data]);
@@ -67,6 +90,7 @@ export default function CameraView() {
       if (e.key === "ArrowRight") { e.preventDefault(); step(1); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
       else if (e.key === "Escape") { nav("/cameras"); }
+      else if (e.key.toLowerCase() === "b") { e.preventDefault(); setBoxes((b) => !b); }
       else if (e.key.toLowerCase() === "f") {
         e.preventDefault();
         const el = stageRef.current?.querySelector("video");
@@ -103,43 +127,55 @@ export default function CameraView() {
           </span>
           <Status s={cam.status} />
           <span className="grow" />
+          <button className={boxes ? "primary sm" : "ghost sm"} onClick={() => setBoxes((b) => !b)}
+                  aria-pressed={boxes} title="Draw detector boxes over the picture (B)">
+            Boxes
+          </button>
           <span className="tiny faint">{at >= 0 ? `${at + 1} / ${order.length}` : ""}</span>
           <button className="ghost sm" onClick={() => step(1)} title="Next camera (→)"
                   aria-label="Next camera">▶</button>
           <Help>
-            <b>←</b> / <b>→</b> previous or next camera · <b>F</b> fullscreen ·
-            {" "}<b>Space</b> play or pause · <b>Esc</b> back to the index.
+            <b>←</b> / <b>→</b> previous or next camera · <b>B</b> detector boxes ·
+            {" "}<b>F</b> fullscreen · <b>Space</b> play or pause · <b>Esc</b> back.
           </Help>
         </header>
 
         <div className="cam-screen">
-          <Player cameraRef={ref} zones={zones} />
+          <Player cameraRef={ref} zones={zones} detections={boxes ? dets : undefined} />
         </div>
 
-        {/* Live facts, horizontal, under the picture. Everything here is about
-            the feed and the camera as it stands — not about the archive. */}
-        <div className="cam-live" role="group" aria-label="Camera status">
-          <Fact v={stream?.resolution ?? "—"} l="resolution" />
-          <Fact v={(stream?.codec ?? "—").toUpperCase()} l="codec" />
-          <Fact v={(stream?.protocol ?? "—").toUpperCase()} l="protocol" />
-          <Fact v={cam.has_stream ? "yes" : "no"} l="relay" tone={cam.has_stream ? "ok" : "dim"} />
-          <span className="cam-live-sep" />
-          <Fact v={num(act?.detection_count ?? 0)} l="detections" />
-          <Fact v={num(act?.track_count ?? 0)} l="tracks" />
-          <Fact v={num(act?.plate_count ?? 0)} l="plates read" />
+        {/* What is true *now*. Four figures, not thirteen.
+
+            This strip carried resolution, codec, protocol, relay, detections,
+            tracks, plates, open events, ANPR tier, read rate, median vehicle
+            width, last-indexed and zone count — thirteen numbers, of which
+            twelve describe the camera's history or its spec sheet and do not
+            change while you watch. Reading them is a separate job from watching
+            the picture, so they moved below the fold and this strip answers only
+            the question an operator has with their eyes on the feed: is the
+            detector working, and what is it seeing? */}
+        <div className="cam-live" role="group" aria-label="Live detector status">
+          <Fact
+            v={seen.running ? `${seen.onScreen}` : "—"}
+            l={seen.running ? "on screen" : "detector idle"}
+            tone={seen.running ? "ok" : "dim"}
+            help="Objects the detector has reported in the last four seconds — the same window the boxes fade over, so this figure and the picture always agree." />
+          <Fact v={seen.running ? num(seen.plates) : "—"} l="plates this minute" />
           <Fact v={num(act?.open_event_count ?? 0)} l="open events"
                 tone={(act?.open_event_count ?? 0) > 0 ? "hot" : undefined} />
-          <span className="cam-live-sep" />
-          <Fact v={anpr?.tier ? titleCase(anpr.tier.replace(/_/g, " ")) : "—"} l="anpr"
-                tone={anpr?.tier === "anpr_capable" ? "ok" : undefined}
-                help="Measured from what this camera actually delivered, not a spec sheet. A plate needs roughly 90 px of width to read." />
-          <Fact v={anpr?.read_rate != null ? pct(anpr.read_rate, 1) : "—"} l="read rate" />
-          <Fact v={anpr?.median_vehicle_width_px ? `${Math.round(anpr.median_vehicle_width_px)} px` : "—"}
-                l="median vehicle"
-                help="Half of the vehicles seen here are narrower than this. Below about 90 px a plate cannot be resolved at all." />
-          <span className="cam-live-sep" />
-          <Fact v={act?.last_ts ? ago(act.last_ts) : "never"} l="indexed to" />
-          <Fact v={num(zones.length)} l="zones" />
+          <Fact v={cam.has_stream ? "yes" : "no"} l="relay"
+                tone={cam.has_stream ? "ok" : "dim"} />
+          <span className="grow" />
+          {/* The honest empty state. Nothing is broken when this shows — the
+              inference worker simply is not pointed at this camera, and saying
+              so beats a picture with no boxes that looks like a detector which
+              has stopped noticing anything. */}
+          {boxes && !seen.running && (
+            <span className="tiny faint cam-idle">
+              No detector running on this camera. Start one with{" "}
+              <code>CAMERAS={cam.external_id} .venv/bin/python -m ml.worker</code>.
+            </span>
+          )}
         </div>
 
         {/* The plates this camera has read, newest first. Horizontal because it
@@ -184,6 +220,35 @@ export default function CameraView() {
 
       {/* ── Below the fold: what has been indexed ───────────────────────── */}
       <div className="cam-detail">
+        {/* The spec sheet and the totals. These were in the live strip, where
+            they competed with the picture for attention and changed roughly
+            never. Here they are a thing you read once when you want them. */}
+        <section className="card">
+          <header>
+            <b>This camera</b>
+            <Help>
+              What the relay delivers and what the archive holds. Separate from
+              the strip above the fold, which is only about right now.
+            </Help>
+          </header>
+          <div className="body cam-spec">
+            <Spec l="Resolution" v={stream?.resolution ?? "—"} />
+            <Spec l="Codec" v={(stream?.codec ?? "—").toUpperCase()} />
+            <Spec l="Protocol" v={(stream?.protocol ?? "—").toUpperCase()} />
+            <Spec l="Zones" v={num(zones.length)} />
+            <Spec l="Detections" v={num(act?.detection_count ?? 0)} />
+            <Spec l="Tracks" v={num(act?.track_count ?? 0)} />
+            <Spec l="Plates read" v={num(act?.plate_count ?? 0)} />
+            <Spec l="Indexed to" v={act?.last_ts ? ago(act.last_ts) : "never"} />
+            <Spec l="ANPR" v={anpr?.tier ? titleCase(anpr.tier.replace(/_/g, " ")) : "—"}
+                  help="Measured from what this camera actually delivered, not a spec sheet. A plate needs roughly 90 px of width to read." />
+            <Spec l="Read rate" v={anpr?.read_rate != null ? pct(anpr.read_rate, 1) : "—"} />
+            <Spec l="Median vehicle"
+                  v={anpr?.median_vehicle_width_px ? `${Math.round(anpr.median_vehicle_width_px)} px` : "—"}
+                  help="Half the vehicles seen here are narrower than this. Below about 90 px a plate cannot be resolved at all." />
+          </div>
+        </section>
+
         <section className="card">
           <header>
             <b>Indexed activity</b>
@@ -285,6 +350,16 @@ export default function CameraView() {
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+/** One label/value pair in the detail grid below the fold. */
+function Spec({ l, v, help }: { l: string; v: React.ReactNode; help?: string }) {
+  return (
+    <div className="cam-spec-row">
+      <span>{l}{help ? <Help>{help}</Help> : null}</span>
+      <b>{v}</b>
     </div>
   );
 }

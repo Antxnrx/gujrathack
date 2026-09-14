@@ -4,10 +4,7 @@ import {
 import { useEffect } from "react";
 import { api } from "./api";
 import { subscribe, EVENTS, ALERTS, PURSUITS } from "./live";
-import type {
-  AlertRow, Camera, EventRow, Facets, Incident, Note, Page, PlaybookSpec, RegistrationCheck,
-  SourceSystem, Tag, TrackRow, Zone,
-} from "./types";
+import type { AlertRow, Camera, DetectionRow, EventRow, Facets, Incident, Note, Page, PlaybookSpec, RegistrationCheck, SourceSystem, Tag, TrackRow, Zone } from "./types";
 
 /**
  * Server state lives here, not in components.
@@ -35,6 +32,7 @@ export const keys = {
   systems: () => ["systems"] as const,
   districts: () => ["districts"] as const,
   tracks: (p: unknown) => ["tracks", p] as const,
+  liveDetections: (ref: string) => ["liveDetections", ref] as const,
   track: (id: string) => ["track", id] as const,
   reads: (id: string) => ["reads", id] as const,
   alerts: (p: unknown) => ["alerts", p] as const,
@@ -146,6 +144,38 @@ export const useTracks = (params: Record<string, unknown>) =>
     queryKey: keys.tracks(params),
     queryFn: ({ signal }) => api.get<Page<TrackRow>>("/tracks", params, signal),
     placeholderData: keepPreviousData,
+  });
+
+/**
+ * The detections the overlay draws, polled while a camera is on screen.
+ *
+ * Polled rather than pushed. The SSE bus carries events, alerts and pursuits —
+ * things an operator is notified about — and putting every detector box on it
+ * would mean thousands of frames a minute crossing a channel whose back-pressure
+ * policy is to drop the oldest. Dropping boxes silently is the one behaviour an
+ * overlay must not have; a poll that misses simply draws the next second.
+ *
+ * `last_minutes: 1` keeps the response to what could plausibly still be on
+ * screen. Without it the newest rows are whatever the last indexing pass wrote —
+ * days old on this estate — which the overlay would fetch every second and
+ * discard every second.
+ *
+ * `enabled` is how a camera that is not being watched costs nothing, and it is
+ * why this is not simply `useDetections`: a poll that outlives the view it
+ * belongs to is a load generator, which this player has already been once.
+ */
+export const useLiveDetections = (ref: string | undefined, enabled: boolean) =>
+  useQuery({
+    queryKey: keys.liveDetections(ref ?? ""),
+    queryFn: ({ signal }) =>
+      api.get<Page<DetectionRow>>(
+        "/detections", { camera: ref, last_minutes: 1, limit: 100 }, signal),
+    enabled: !!ref && enabled,
+    refetchInterval: 1000,
+    // A box that arrives late is worse than no box, so a slow response is not
+    // worth retrying — the next tick is already a second away.
+    retry: false,
+    staleTime: 0,
   });
 
 export const useTrack = (id: string | undefined) =>
